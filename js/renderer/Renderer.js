@@ -65,10 +65,13 @@ export class Renderer {
     this.scene.add(water);
     this._waterMesh = water;
 
-    // Horizon grid (light, far)
-    const grid = new THREE.GridHelper(400, 40, 0x1a2840, 0x1a2840);
+    // Horizon grid (light, far). Follows the camera target in followTarget()
+    // so the world never visibly "ends"; fog hides the edge.
+    const grid = new THREE.GridHelper(1200, 120, 0x1a2840, 0x1a2840);
     grid.position.y = (this.waterSurface?.level ?? -10) + 0.05;
     this.scene.add(grid);
+    this._gridMesh = grid;
+    this._gridCell = 1200 / 120;
 
     // Stars / sky particles
     const starGeo = new THREE.BufferGeometry();
@@ -138,6 +141,18 @@ export class Renderer {
   followTarget(creature) {
     const c = creature.getCentroid();
     this._camTarget.set(c.x, c.y, c.z);
+
+    // Keep the ocean and grid centered under the creature (grid snapped to
+    // cell multiples so the lines don't crawl)
+    if (this._waterMesh) {
+      this._waterMesh.position.x = c.x;
+      this._waterMesh.position.z = c.z;
+    }
+    if (this._gridMesh) {
+      const cell = this._gridCell;
+      this._gridMesh.position.x = Math.round(c.x / cell) * cell;
+      this._gridMesh.position.z = Math.round(c.z / cell) * cell;
+    }
 
     // Orbit around the target
     const d = this._orbitDist;

@@ -116,12 +116,16 @@ export class FlappingController {
       sYaw = clamp(-g.yawD * r, -0.5, 0.5);
     }
 
+    this.currentFrequency = 0;
     for (const [muscleId, pat] of this.patterns) {
       const muscle = this.creature.muscles.get(muscleId);
       if (!muscle) continue;
 
       const freq = pat.frequency * this.globalFrequencyScale * lerp(0.25, 1.25, flap);
-      this.currentFrequency = freq;
+      // Telemetry: report the wingbeat (highest active oscillation, zero amp = not beating)
+      if (pat.frequency > 0 && pat.amplitude * flap * pat.flapScale !== 0) {
+        this.currentFrequency = Math.max(this.currentFrequency, freq);
+      }
 
       // Amplitude scales with flap input; at zero input wings hold a glide
       // pose exactly (any residual oscillation pumps energy into the glide)

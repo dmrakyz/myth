@@ -3,7 +3,7 @@
 const DEAD = 0.08;
 
 export class VirtualJoystick {
-  constructor(containerId) {
+  constructor(containerId, label = '') {
     this.x = 0;
     this.y = 0;
     this._touchId = null;
@@ -16,10 +16,9 @@ export class VirtualJoystick {
     const size = 130;
     const knobSize = 46;
 
+    // Container keeps its CSS positioning (fixed, bottom corners) — only
+    // populate the inside.
     container.innerHTML = '';
-    container.style.position = 'relative';
-    container.style.width = size + 'px';
-    container.style.height = size + 'px';
 
     // Base ring
     const base = document.createElement('div');
@@ -29,6 +28,19 @@ export class VirtualJoystick {
       background: 'rgba(10,20,40,0.45)',
     });
     container.appendChild(base);
+
+    // Label under the stick
+    if (label) {
+      const lab = document.createElement('div');
+      Object.assign(lab.style, {
+        position: 'absolute', top: '100%', left: '0', right: '0',
+        marginTop: '6px', textAlign: 'center',
+        fontSize: '9px', letterSpacing: '2px', color: 'rgba(107,122,144,0.9)',
+        pointerEvents: 'none',
+      });
+      lab.textContent = label;
+      container.appendChild(lab);
+    }
 
     // Knob
     const knob = document.createElement('div');

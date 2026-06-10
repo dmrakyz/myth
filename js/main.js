@@ -16,8 +16,9 @@ import { HUD } from './ui/HUD.js';
 const errPanel = document.createElement('div');
 errPanel.id = 'err-panel';
 Object.assign(errPanel.style, {
-  position: 'fixed', bottom: '8px', left: '8px', right: '8px', zIndex: '9999',
-  maxHeight: '40vh', overflowY: 'auto', pointerEvents: 'none',
+  position: 'fixed', top: 'calc(96px + env(safe-area-inset-top, 0px))',
+  left: '8px', right: '8px', zIndex: '9999',
+  maxHeight: '30vh', overflowY: 'auto', pointerEvents: 'none',
 });
 document.body.appendChild(errPanel);
 
@@ -29,9 +30,9 @@ function logErr(msg, stack = '') {
     marginTop: '4px', borderRadius: '4px', whiteSpace: 'pre-wrap',
     wordBreak: 'break-all', pointerEvents: 'auto',
   });
-  el.textContent = msg + (stack ? '\n' + stack.split('\n').slice(0, 4).join('\n') : '');
+  el.textContent = '✕ ' + msg + (stack ? '\n' + stack.split('\n').slice(0, 4).join('\n') : '');
+  el.addEventListener('click', () => el.remove());  // tap to dismiss
   errPanel.appendChild(el);
-  errPanel.scrollTop = errPanel.scrollHeight;
   console.error(msg, stack);
 }
 
@@ -58,6 +59,7 @@ function hideLoading() {
 let world, bird, renderer, creatureRenderer, hud;
 let keyboard, joystickL, joystickR;
 let simMode = false;  // false = build view, true = simulate
+let autoFlap = true;  // sustained flapping toggle (FLAP button)
 let rafId = null;
 let lastTime = 0;
 
@@ -98,8 +100,8 @@ async function boot() {
 
     hud = new HUD();
     keyboard = new KeyboardControls();
-    joystickL = new VirtualJoystick('joystick-left');
-    joystickR = new VirtualJoystick('joystick-right');
+    joystickL = new VirtualJoystick('joystick-left', 'PITCH · ROLL');
+    joystickR = new VirtualJoystick('joystick-right', 'YAW · FLAP');
 
     setProgress(100, 'Ready');
     wireUI();
@@ -122,15 +124,16 @@ function raf() {
   lastTime = now;
 
   if (simMode && world && bird) {
-    // Map controls to world input
+    // Map controls to world input. Pitch/roll/yaw are bidirectional (−1..1);
+    // flap rate is 0..1. Stick up = pitch up / more flap.
     const kb = keyboard.state;
     const lx = joystickL.x, ly = joystickL.y;
     const rx = joystickR.x, ry = joystickR.y;
 
-    world.input.pitchUp  = clamp01(-ly + (kb.pitchUp  - kb.pitchDown));
-    world.input.rollLeft = clamp01(-lx + (kb.rollLeft - kb.rollRight));
-    world.input.yawLeft  = clamp01(-rx + (kb.yawLeft  - kb.yawRight));
-    world.input.flapRate = clamp01( ry + kb.flap);
+    world.input.pitchUp  = clampAxis(-ly + (kb.pitchUp  - kb.pitchDown));
+    world.input.rollLeft = clampAxis(-lx + (kb.rollLeft - kb.rollRight));
+    world.input.yawLeft  = clampAxis(-rx + (kb.yawLeft  - kb.yawRight));
+    world.input.flapRate = clamp01((autoFlap ? 1 : 0) - ry + kb.flap);
     world.input.brake    = kb.brake ? 1 : 0;
 
     world.step(dt);
@@ -144,6 +147,7 @@ function raf() {
 }
 
 function clamp01(v) { return Math.max(0, Math.min(1, v)); }
+function clampAxis(v) { return Math.max(-1, Math.min(1, v)); }
 
 // ── UI wiring ───────────────────────────────────────────────────────────────
 function enterSimMode() {
@@ -151,6 +155,7 @@ function enterSimMode() {
   document.getElementById('hud').classList.remove('hidden');
   document.getElementById('joystick-left').classList.remove('hidden');
   document.getElementById('joystick-right').classList.remove('hidden');
+  document.getElementById('flap-btn')?.classList.remove('hidden');
   document.getElementById('launch-btn').classList.add('hidden');
   const btn = document.getElementById('mode-toggle');
   if (btn) btn.textContent = '🔧 Build';
@@ -161,6 +166,7 @@ function enterBuildMode() {
   document.getElementById('hud').classList.add('hidden');
   document.getElementById('joystick-left').classList.add('hidden');
   document.getElementById('joystick-right').classList.add('hidden');
+  document.getElementById('flap-btn')?.classList.add('hidden');
   document.getElementById('launch-btn').classList.remove('hidden');
   const btn = document.getElementById('mode-toggle');
   if (btn) btn.textContent = '✈ Simulate';
@@ -170,6 +176,12 @@ function wireUI() {
   // Mode toggle
   document.getElementById('mode-toggle')?.addEventListener('click', () => {
     simMode ? enterBuildMode() : enterSimMode();
+  });
+
+  // Flap toggle
+  document.getElementById('flap-btn')?.addEventListener('click', () => {
+    autoFlap = !autoFlap;
+    document.getElementById('flap-btn').classList.toggle('active', autoFlap);
   });
 
   // Launch button

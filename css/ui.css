@@ -230,3 +230,30 @@
 .toast.out { animation: toast-out 0.3s forwards; }
 @keyframes toast-in { from { opacity: 0; transform: translateY(10px); } }
 @keyframes toast-out { to { opacity: 0; transform: translateY(10px); } }
+
+/* Flap toggle button */
+#flap-btn {
+  position: fixed;
+  bottom: calc(180px + var(--safe-bottom));
+  right: 38px;
+  width: 94px;
+  padding: 12px 0;
+  border-radius: 24px;
+  background: rgba(10, 20, 40, 0.55);
+  border: 2px solid rgba(77, 163, 255, 0.35);
+  color: var(--text-dim);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  z-index: 30;
+  touch-action: manipulation;
+}
+#flap-btn.active {
+  background: rgba(77, 163, 255, 0.3);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Mobile fit adjustments */
+.bar-btn { padding: 7px 10px; font-size: 12px; white-space: nowrap; }
+.hud-row { flex-wrap: wrap; justify-content: center; max-width: 94vw; gap: 10px; }

@@ -114,6 +114,9 @@ export class CreatureRenderer {
     }
 
     for (const wing of creature.wings.values()) {
+      // tailSurface duplicates the tail plate segment; tailFin models the
+      // splayed tail's side area at sideslip — neither is a visible surface.
+      if (wing.name === 'tailSurface' || wing.name === 'tailFin') continue;
       for (const strip of wing.strips) {
         const mesh = makeStripMesh(strip);
         mesh.frustumCulled = false;
