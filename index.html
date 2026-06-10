@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#0a0e14">
+  <title>Myth — Creature Flight Simulator</title>
+  <link rel="stylesheet" href="css/main.css">
+  <link rel="stylesheet" href="css/ui.css">
+  <link rel="stylesheet" href="css/builder.css">
+</head>
+<body>
+  <div id="canvas-container"></div>
+
+  <!-- HUD overlay (simulate mode) -->
+  <div id="hud" class="hud-overlay hidden">
+    <div class="hud-row">
+      <div class="hud-item"><span class="hud-label">SPD</span><span id="hud-speed" class="hud-value">0.0</span><span class="hud-unit">m/s</span></div>
+      <div class="hud-item"><span class="hud-label">ALT</span><span id="hud-alt" class="hud-value">0.0</span><span class="hud-unit">m</span></div>
+      <div class="hud-item"><span class="hud-label">AoA</span><span id="hud-aoa" class="hud-value">0.0</span><span class="hud-unit">°</span></div>
+      <div class="hud-item"><span class="hud-label">FLAP</span><span id="hud-flap" class="hud-value">0.0</span><span class="hud-unit">Hz</span></div>
+      <div class="hud-item"><span class="hud-label">LIFT</span><span id="hud-lift" class="hud-value">0.0</span><span class="hud-unit">N</span></div>
+    </div>
+    <div id="hud-stall" class="hud-warning hidden">STALL</div>
+    <div id="hud-medium" class="hud-medium"></div>
+  </div>
+
+  <!-- Top bar -->
+  <div id="top-bar">
+    <button id="mode-toggle" class="bar-btn">✈ Simulate</button>
+    <button id="creature-btn" class="bar-btn">🐉 Creature</button>
+    <button id="physics-btn" class="bar-btn">⚙ World</button>
+    <button id="debug-btn" class="bar-btn">📐 Debug</button>
+    <button id="reset-btn" class="bar-btn">↺ Reset</button>
+  </div>
+
+  <!-- Builder panel -->
+  <aside id="builder-panel" class="panel hidden">
+    <div class="panel-header">Builder</div>
+    <div id="builder-toolbar">
+      <button class="tool-btn active" data-tool="select">Select</button>
+      <button class="tool-btn" data-tool="segment">+ Segment</button>
+      <button class="tool-btn" data-tool="wingbone">+ Wing Bone</button>
+      <button class="tool-btn" data-tool="feathers">+ Feathers</button>
+      <button class="tool-btn" data-tool="membrane">+ Membrane</button>
+      <button class="tool-btn" data-tool="fin">+ Fin</button>
+      <button class="tool-btn" data-tool="joint">+ Joint</button>
+      <button class="tool-btn" data-tool="muscle">+ Muscle</button>
+    </div>
+    <div id="builder-props"></div>
+  </aside>
+
+  <!-- Creature panel -->
+  <div id="creature-panel" class="panel hidden">
+    <div class="panel-header">Creature</div>
+    <div class="panel-section">
+      <label>Preset</label>
+      <div class="btn-row">
+        <button class="preset-btn" data-preset="bird">Bird</button>
+        <button class="preset-btn" data-preset="dragon">Dragon</button>
+        <button class="preset-btn" data-preset="bat">Bat</button>
+        <button class="preset-btn" data-preset="ray">Ray</button>
+        <button class="preset-btn" data-preset="fish">Fish</button>
+      </div>
+    </div>
+    <div class="panel-section">
+      <label>Save / Load</label>
+      <div class="btn-row">
+        <button id="save-btn">Save</button>
+        <button id="load-btn">Load</button>
+        <button id="export-btn">Export</button>
+        <button id="import-btn">Import</button>
+      </div>
+      <input type="file" id="import-file" accept=".json" class="hidden">
+      <div id="saved-list"></div>
+    </div>
+  </div>
+
+  <!-- Physics panel -->
+  <div id="physics-panel" class="panel hidden">
+    <div class="panel-header">World</div>
+    <div class="panel-section">
+      <label>Wind speed <span id="wind-val">0</span> m/s</label>
+      <input type="range" id="wind-speed" min="0" max="20" step="0.5" value="0">
+      <label>Wind direction <span id="winddir-val">0</span>°</label>
+      <input type="range" id="wind-dir" min="0" max="360" step="5" value="0">
+      <label>Wave height <span id="wave-val">0.4</span> m</label>
+      <input type="range" id="wave-height" min="0" max="3" step="0.1" value="0.4">
+      <label>Gravity <span id="grav-val">9.81</span> m/s²</label>
+      <input type="range" id="gravity" min="0" max="25" step="0.1" value="9.81">
+      <label>Time scale <span id="time-val">1.0</span>×</label>
+      <input type="range" id="time-scale" min="0.1" max="2" step="0.1" value="1.0">
+    </div>
+  </div>
+
+  <!-- Virtual joysticks -->
+  <div id="joystick-left" class="joystick-container hidden"></div>
+  <div id="joystick-right" class="joystick-container hidden"></div>
+
+  <!-- Launch button -->
+  <button id="launch-btn" class="hidden">LAUNCH</button>
+
+  <!-- Notifications -->
+  <div id="notifications"></div>
+
+  <!-- Loading screen -->
+  <div id="loading">
+    <div class="loading-title">MYTH</div>
+    <div class="loading-sub">creature flight simulator</div>
+    <div class="loading-bar"><div id="loading-fill"></div></div>
+  </div>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js"
+    }
+  }
+  </script>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

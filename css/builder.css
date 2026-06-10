@@ -1,0 +1,89 @@
+#builder-panel {
+  left: 8px;
+  right: auto;
+  width: min(280px, calc(100vw - 16px));
+}
+
+#builder-toolbar {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 10px;
+  border-bottom: 1px solid var(--panel-border);
+}
+
+.tool-btn {
+  background: rgba(0,0,0,0.25);
+  border: 1px solid var(--panel-border);
+  color: var(--text);
+  padding: 10px 6px;
+  border-radius: 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.tool-btn.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(77, 163, 255, 0.12);
+}
+
+#builder-props { padding: 4px 0; }
+
+.prop-group {
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+.prop-group-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+.prop-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+}
+.prop-row label {
+  flex: 0 0 78px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.prop-row input, .prop-row select {
+  flex: 1;
+  min-width: 0;
+  background: rgba(0,0,0,0.3);
+  border: 1px solid var(--panel-border);
+  color: var(--text);
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+.prop-row input[type="range"] { padding: 0; height: 26px; accent-color: var(--accent); }
+
+.prop-actions {
+  display: flex;
+  gap: 6px;
+  padding: 10px 14px;
+}
+.prop-actions button {
+  flex: 1;
+  padding: 9px;
+  border-radius: 8px;
+  border: 1px solid var(--panel-border);
+  background: rgba(0,0,0,0.25);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
+.prop-actions button.danger { color: var(--danger); border-color: rgba(255,77,94,0.4); }
+
+.builder-hint {
+  padding: 10px 14px;
+  font-size: 12px;
+  color: var(--text-dim);
+  font-style: italic;
+}
