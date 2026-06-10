@@ -25,8 +25,7 @@ export class Renderer {
 
     // Camera follow state
     this._camTarget = new THREE.Vector3();
-    this._camOffset = new THREE.Vector3(0, 4, 22);
-    this._camSmooth = new THREE.Vector3(0, 10, 30);
+    this._camSmooth = new THREE.Vector3(0, 31.5, 8); // near bird spawn (0,30,0)
 
     // Lights
     const ambient = new THREE.AmbientLight(0x3a4a60, 1.5);
@@ -45,7 +44,7 @@ export class Renderer {
     this._touch = { active: false, lastX: 0, lastY: 0, dist: 0 };
     this._orbitYaw = 0;
     this._orbitPitch = 0.18;
-    this._orbitDist = 22;
+    this._orbitDist = 8;
     this._bindOrbit();
 
     this._resize();
@@ -99,7 +98,7 @@ export class Renderer {
     window.addEventListener('mouseup', () => { mouseDown = false; });
     window.addEventListener('mousemove', e => {
       if (!mouseDown) return;
-      this._orbitYaw   += (e.clientX - mx) * 0.005;
+      this._orbitYaw   -= (e.clientX - mx) * 0.005;
       this._orbitPitch += (e.clientY - my) * 0.004;
       this._orbitPitch = Math.max(-0.1, Math.min(1.2, this._orbitPitch));
       mx = e.clientX; my = e.clientY;
@@ -122,7 +121,7 @@ export class Renderer {
     }, { passive: true });
     el.addEventListener('touchmove', e => {
       if (e.touches.length === 1 && this._touch.active) {
-        this._orbitYaw   += (e.touches[0].clientX - this._touch.lastX) * 0.006;
+        this._orbitYaw   -= (e.touches[0].clientX - this._touch.lastX) * 0.006;
         this._orbitPitch += (e.touches[0].clientY - this._touch.lastY) * 0.005;
         this._orbitPitch = Math.max(-0.1, Math.min(1.2, this._orbitPitch));
         this._touch.lastX = e.touches[0].clientX;

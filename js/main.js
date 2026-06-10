@@ -45,7 +45,8 @@ const loadingFill = document.getElementById('loading-fill');
 
 function setProgress(pct, label) {
   if (loadingFill) loadingFill.style.width = pct + '%';
-  if (label) console.log(`[boot] ${label}`);
+  const statusEl = document.getElementById('loading-status');
+  if (label) { console.log(`[boot] ${label}`); if (statusEl) statusEl.textContent = label; }
 }
 
 function hideLoading() {
@@ -100,6 +101,9 @@ async function boot() {
 
     hud = new HUD();
     keyboard = new KeyboardControls();
+    keyboard.onReset = () => {
+      if (bird) { bird.placeAt(0, 30, 0); bird.setVelocity(0, 0, -8); world.input.flapRate = 1; }
+    };
     joystickL = new VirtualJoystick('joystick-left', 'PITCH · ROLL');
     joystickR = new VirtualJoystick('joystick-right', 'YAW · FLAP');
 
@@ -158,7 +162,10 @@ function enterSimMode() {
   document.getElementById('flap-btn')?.classList.remove('hidden');
   document.getElementById('launch-btn').classList.add('hidden');
   const btn = document.getElementById('mode-toggle');
-  if (btn) btn.textContent = '🔧 Build';
+  if (btn) {
+    btn.innerHTML = '<svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg><span>Build</span>';
+    btn.classList.add('active');
+  }
 }
 
 function enterBuildMode() {
@@ -169,7 +176,10 @@ function enterBuildMode() {
   document.getElementById('flap-btn')?.classList.add('hidden');
   document.getElementById('launch-btn').classList.remove('hidden');
   const btn = document.getElementById('mode-toggle');
-  if (btn) btn.textContent = '✈ Simulate';
+  if (btn) {
+    btn.innerHTML = '<svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12l9-9 9 9M5 10v9a1 1 0 001 1h4v-5h4v5h4a1 1 0 001-1v-9"/></svg><span>Simulate</span>';
+    btn.classList.remove('active');
+  }
 }
 
 function wireUI() {
@@ -214,11 +224,25 @@ function wireUI() {
       const panel = document.getElementById(panelId);
       if (!panel) return;
       const isOpen = !panel.classList.contains('hidden');
-      // Close all panels first
       document.querySelectorAll('.panel').forEach(p => p.classList.add('hidden'));
-      if (!isOpen) panel.classList.remove('hidden');
+      document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+      if (!isOpen) {
+        panel.classList.remove('hidden');
+        document.getElementById(btnId).classList.add('active');
+      }
     });
   }
+  // Panel close buttons (✕)
+  document.querySelectorAll('.panel-close').forEach(btn => {
+    const panelId = btn.dataset.close;
+    btn.addEventListener('click', () => {
+      document.getElementById(panelId)?.classList.add('hidden');
+      // Deactivate the corresponding nav button
+      for (const [btnId, pid] of Object.entries(panelMap)) {
+        if (pid === panelId) document.getElementById(btnId)?.classList.remove('active');
+      }
+    });
+  });
 
   // Creature presets
   document.querySelectorAll('.preset-btn').forEach(btn => {

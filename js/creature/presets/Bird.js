@@ -204,11 +204,10 @@ export function createBird() {
     frequency: FLAP_FREQ, amplitude: -0.35, phase: 0, restAngle: -0.18,
     waveform: 'downbeat',
   });
-  // Wrists trail the shoulder by ~70° and fold slightly on the upstroke
+  // Wrists trail the shoulder by ~70° and fold slightly on the upstroke.
   // Roll authority lives at the wrists: a common-sign offset folds one hand
   // up while extending the other (hinge conventions mirror), shifting lift
-  // spanwise — how real birds bank. Same channel handles both pilot roll
-  // input and the roll reflex.
+  // spanwise — how real birds bank.
   ctrl.setPattern('wristR', {
     frequency: FLAP_FREQ, amplitude: 0.30, phase: -1.2, restAngle: 0.05,
     waveform: 'sine',

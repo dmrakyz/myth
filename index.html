@@ -6,6 +6,9 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="theme-color" content="#0a0e14">
   <title>Myth — Creature Flight Simulator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@300;400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/main.css">
   <link rel="stylesheet" href="css/ui.css">
   <link rel="stylesheet" href="css/builder.css">
@@ -16,28 +19,83 @@
   <!-- HUD overlay (simulate mode) -->
   <div id="hud" class="hud-overlay hidden">
     <div class="hud-row">
-      <div class="hud-item"><span class="hud-label">SPD</span><span id="hud-speed" class="hud-value">0.0</span><span class="hud-unit">m/s</span></div>
-      <div class="hud-item"><span class="hud-label">ALT</span><span id="hud-alt" class="hud-value">0.0</span><span class="hud-unit">m</span></div>
-      <div class="hud-item"><span class="hud-label">AoA</span><span id="hud-aoa" class="hud-value">0.0</span><span class="hud-unit">°</span></div>
-      <div class="hud-item"><span class="hud-label">FLAP</span><span id="hud-flap" class="hud-value">0.0</span><span class="hud-unit">Hz</span></div>
-      <div class="hud-item"><span class="hud-label">LIFT</span><span id="hud-lift" class="hud-value">0.0</span><span class="hud-unit">N</span></div>
+      <div class="hud-item">
+        <span class="hud-label">SPD</span>
+        <span id="hud-speed" class="hud-value">0.0</span>
+        <span class="hud-unit">m/s</span>
+      </div>
+      <div class="hud-sep"></div>
+      <div class="hud-item">
+        <span class="hud-label">ALT</span>
+        <span id="hud-alt" class="hud-value">0.0</span>
+        <span class="hud-unit">m</span>
+      </div>
+      <div class="hud-sep"></div>
+      <div class="hud-item">
+        <span class="hud-label">AoA</span>
+        <span id="hud-aoa" class="hud-value">0.0</span>
+        <span class="hud-unit">°</span>
+      </div>
+      <div class="hud-sep"></div>
+      <div class="hud-item">
+        <span class="hud-label">FLAP</span>
+        <span id="hud-flap" class="hud-value">0.0</span>
+        <span class="hud-unit">Hz</span>
+      </div>
+      <div class="hud-sep"></div>
+      <div class="hud-item">
+        <span class="hud-label">LIFT</span>
+        <span id="hud-lift" class="hud-value">0.0</span>
+        <span class="hud-unit">N</span>
+      </div>
     </div>
-    <div id="hud-stall" class="hud-warning hidden">STALL</div>
+    <div id="hud-stall" class="hud-warning hidden">⚠ STALL</div>
     <div id="hud-medium" class="hud-medium"></div>
   </div>
 
-  <!-- Top bar -->
-  <div id="top-bar">
-    <button id="mode-toggle" class="bar-btn">✈ Simulate</button>
-    <button id="creature-btn" class="bar-btn">🐉 Creature</button>
-    <button id="physics-btn" class="bar-btn">⚙ World</button>
-    <button id="debug-btn" class="bar-btn">📐 Debug</button>
-    <button id="reset-btn" class="bar-btn">↺ Reset</button>
-  </div>
+  <!-- Top nav bar -->
+  <nav id="top-bar">
+    <div class="nav-brand">
+      <span class="brand-name">MYTH</span>
+      <span class="brand-sub">FLIGHT SIM</span>
+    </div>
+    <div class="nav-divider"></div>
+    <div class="nav-group">
+      <button id="mode-toggle" class="nav-btn nav-btn-primary">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12l9-9 9 9M5 10v9a1 1 0 001 1h4v-5h4v5h4a1 1 0 001-1v-9"/></svg>
+        <span>Simulate</span>
+      </button>
+    </div>
+    <div class="nav-divider"></div>
+    <div class="nav-group">
+      <button id="creature-btn" class="nav-btn" title="Creature presets">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><circle cx="9" cy="9" r="1" fill="currentColor"/><circle cx="15" cy="9" r="1" fill="currentColor"/></svg>
+        <span>Creature</span>
+      </button>
+      <button id="physics-btn" class="nav-btn" title="World physics">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
+        <span>World</span>
+      </button>
+      <button id="debug-btn" class="nav-btn" title="Builder / debug">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        <span>Build</span>
+      </button>
+    </div>
+    <div class="nav-divider"></div>
+    <div class="nav-group">
+      <button id="reset-btn" class="nav-btn nav-btn-warn" title="Reset bird">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/></svg>
+        <span>Reset</span>
+      </button>
+    </div>
+  </nav>
 
-  <!-- Builder panel -->
+  <!-- Builder panel (left side) -->
   <aside id="builder-panel" class="panel hidden">
-    <div class="panel-header">Builder</div>
+    <div class="panel-header">
+      <span>Builder</span>
+      <button class="panel-close" data-close="builder-panel">✕</button>
+    </div>
     <div id="builder-toolbar">
       <button class="tool-btn active" data-tool="select">Select</button>
       <button class="tool-btn" data-tool="segment">+ Segment</button>
@@ -48,24 +106,27 @@
       <button class="tool-btn" data-tool="joint">+ Joint</button>
       <button class="tool-btn" data-tool="muscle">+ Muscle</button>
     </div>
-    <div id="builder-props"></div>
+    <div id="builder-props"><p class="panel-hint">Select an object to edit properties</p></div>
   </aside>
 
   <!-- Creature panel -->
   <div id="creature-panel" class="panel hidden">
-    <div class="panel-header">Creature</div>
+    <div class="panel-header">
+      <span>Creature</span>
+      <button class="panel-close" data-close="creature-panel">✕</button>
+    </div>
     <div class="panel-section">
-      <label>Preset</label>
+      <div class="section-label">Preset</div>
       <div class="btn-row">
-        <button class="preset-btn" data-preset="bird">Bird</button>
-        <button class="preset-btn" data-preset="dragon">Dragon</button>
-        <button class="preset-btn" data-preset="bat">Bat</button>
-        <button class="preset-btn" data-preset="ray">Ray</button>
-        <button class="preset-btn" data-preset="fish">Fish</button>
+        <button class="preset-btn" data-preset="bird">🐦 Bird</button>
+        <button class="preset-btn" data-preset="dragon">🐉 Dragon</button>
+        <button class="preset-btn" data-preset="bat">🦇 Bat</button>
+        <button class="preset-btn" data-preset="ray">🐟 Ray</button>
+        <button class="preset-btn" data-preset="fish">🐠 Fish</button>
       </div>
     </div>
     <div class="panel-section">
-      <label>Save / Load</label>
+      <div class="section-label">Save / Load</div>
       <div class="btn-row">
         <button id="save-btn">Save</button>
         <button id="load-btn">Load</button>
@@ -75,21 +136,35 @@
       <input type="file" id="import-file" accept=".json" class="hidden">
       <div id="saved-list"></div>
     </div>
+    <div class="panel-section">
+      <div class="section-label">Controls</div>
+      <div class="controls-hint">
+        <div class="ctrl-row"><kbd>W/S</kbd><span>Pitch</span></div>
+        <div class="ctrl-row"><kbd>A/D</kbd><span>Roll</span></div>
+        <div class="ctrl-row"><kbd>Q/E</kbd><span>Yaw</span></div>
+        <div class="ctrl-row"><kbd>Space</kbd><span>Flap</span></div>
+        <div class="ctrl-row"><kbd>B</kbd><span>Brake</span></div>
+        <div class="ctrl-row"><kbd>R</kbd><span>Reset</span></div>
+      </div>
+    </div>
   </div>
 
   <!-- Physics panel -->
   <div id="physics-panel" class="panel hidden">
-    <div class="panel-header">World</div>
+    <div class="panel-header">
+      <span>World</span>
+      <button class="panel-close" data-close="physics-panel">✕</button>
+    </div>
     <div class="panel-section">
-      <label>Wind speed <span id="wind-val">0</span> m/s</label>
+      <label class="slider-label">Wind speed <span id="wind-val" class="slider-val">0</span> m/s</label>
       <input type="range" id="wind-speed" min="0" max="20" step="0.5" value="0">
-      <label>Wind direction <span id="winddir-val">0</span>°</label>
+      <label class="slider-label">Wind direction <span id="winddir-val" class="slider-val">0</span>°</label>
       <input type="range" id="wind-dir" min="0" max="360" step="5" value="0">
-      <label>Wave height <span id="wave-val">0.4</span> m</label>
+      <label class="slider-label">Wave height <span id="wave-val" class="slider-val">0.4</span> m</label>
       <input type="range" id="wave-height" min="0" max="3" step="0.1" value="0.4">
-      <label>Gravity <span id="grav-val">9.81</span> m/s²</label>
+      <label class="slider-label">Gravity <span id="grav-val" class="slider-val">9.81</span> m/s²</label>
       <input type="range" id="gravity" min="0" max="25" step="0.1" value="9.81">
-      <label>Time scale <span id="time-val">1.0</span>×</label>
+      <label class="slider-label">Time scale <span id="time-val" class="slider-val">1.0</span>×</label>
       <input type="range" id="time-scale" min="0.1" max="2" step="0.1" value="1.0">
     </div>
   </div>
@@ -109,9 +184,12 @@
 
   <!-- Loading screen -->
   <div id="loading">
-    <div class="loading-title">MYTH</div>
-    <div class="loading-sub">creature flight simulator</div>
-    <div class="loading-bar"><div id="loading-fill"></div></div>
+    <div class="loading-content">
+      <div class="loading-title">MYTH</div>
+      <div class="loading-sub">creature flight simulator</div>
+      <div class="loading-bar"><div id="loading-fill"></div></div>
+      <div id="loading-status" class="loading-status">Initializing…</div>
+    </div>
   </div>
 
   <script type="importmap">
