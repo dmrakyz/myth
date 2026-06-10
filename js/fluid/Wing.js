@@ -13,10 +13,10 @@ export class Wing {
     this.lastTotalLift = 0; // telemetry
   }
 
-  computeForces(parentBody, medium) {
+  computeForces(parentBody, medium, dt) {
     let total = 0;
     for (let i = 0; i < this.strips.length; i++) {
-      total += this.strips[i].computeForce(parentBody, medium);
+      total += this.strips[i].computeForce(parentBody, medium, dt);
     }
     this.lastTotalLift = total;
     return total;

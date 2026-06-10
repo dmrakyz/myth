@@ -2,36 +2,40 @@ import { Vec3 } from '../math/Vec3.js';
 import { Feather } from './Feather.js';
 import { AirfoilData } from '../fluid/AirfoilData.js';
 
-// A row of feathers attached along one wing bone. Primaries (outboard) get
-// individual passive-pitch physics; the fan-out angle spreads them like a
-// real primary fan so tip slots open under load.
+// A row of feathers along a wing bone. The bone is an elongated segment whose
+// long axis runs along ±x (outboard). Each feather is a BET strip whose span
+// axis is the rachis (the feather's long axis, pointing outboard and fanning
+// backward toward the tip) with passive pitch rotation about it — the
+// venetian-blind twist real primaries exhibit on the upstroke.
 //
-// Bone convention: bone capsule extends along its local z axis; feathers
-// sprout in local +spanSign·x and trail in local +z (chordwise back).
+// Frame convention: both wings use strip frames with positive-x span so that
+// cambered airfoil tables behave identically left and right; only feather
+// POSITIONS are mirrored (spanSign). The rachis line direction is sign-free.
 let nextArrayId = 1;
 
 export class FeatherArray {
   constructor({
     name = 'feathers',
-    segmentId,            // bone the feathers attach to
+    segmentId,             // bone the feathers attach to
     count = 8,
-    rootOffset = 0,       // start position along bone z (from bone center)
-    spacing = 0.05,       // distance between feather roots along bone
-    rootChord = 0.12,
-    tipChord = 0.06,
-    featherSpan = 0.22,   // length of each feather vane
-    spanSign = 1,         // +1 right wing, -1 left wing
-    fanAngle = 0.5,       // total fan spread at the tip (radians)
-    sweepBack = 0.25,     // backward sweep of outer feathers (radians)
+    rootX = 0,             // first feather root along bone x (signed, local)
+    spacing = 0.03,        // root spacing along the bone (unsigned)
+    rootChord = 0.04,      // feather vane width at the innermost feather
+    tipChord = 0.025,
+    featherLength = 0.2,   // rachis length
+    spanSign = 1,          // +1 right wing, -1 left wing (positions only)
+    fanStart = 0.1,        // sweep-back of innermost feather (radians)
+    fanEnd = 0.8,          // sweep-back of outermost feather (radians)
     airfoilId = 'flatplate',
     torsionalStiffness = 0.5,
+    restTwist = 0,
   }) {
     this.id = `fa_${nextArrayId++}`;
     this.name = name;
     this.segmentId = segmentId;
     this.params = {
-      count, rootOffset, spacing, rootChord, tipChord, featherSpan,
-      spanSign, fanAngle, sweepBack, airfoilId, torsionalStiffness,
+      count, rootX, spacing, rootChord, tipChord, featherLength,
+      spanSign, fanStart, fanEnd, airfoilId, torsionalStiffness, restTwist,
     };
     this.feathers = [];
     this.rebuild();
@@ -41,31 +45,36 @@ export class FeatherArray {
     const p = this.params;
     this.feathers.length = 0;
     const airfoil = AirfoilData.get(p.airfoilId);
+    const sign = p.spanSign;
 
     for (let i = 0; i < p.count; i++) {
       const t = p.count > 1 ? i / (p.count - 1) : 0;
       const chord = p.rootChord + (p.tipChord - p.rootChord) * t;
-      // Outer feathers fan out backward and slightly down
-      const fan = (t - 0.5) * p.fanAngle + t * p.sweepBack;
+      const fan = p.fanStart + (p.fanEnd - p.fanStart) * t;
 
-      const root = new Vec3(0, 0, -p.rootOffset + i * p.spacing);
-      // Feather extends outboard, rotated back by fan angle in the xz plane
-      const spanDir = new Vec3(
-        p.spanSign * Math.cos(fan), 0, Math.sin(fan));
-      const chordDir = new Vec3(
-        -p.spanSign * Math.sin(fan), 0, Math.cos(fan));
-      // Aerodynamic center: half the feather span outboard from the root
+      // Root walks outboard along the bone
+      const rootXPos = sign * (Math.abs(p.rootX) + i * p.spacing);
+
+      // Strip frame (same handedness both sides):
+      //   spanDir  = (cos f, 0, sign·sin f) — rachis line
+      //   chordDir = (−sign·sin f, 0, cos f) — across the vane, toward TE
+      const cf = Math.cos(fan), sf = Math.sin(fan);
+      const spanDir = new Vec3(cf, 0, sign * sf);
+      const chordDir = new Vec3(-sign * sf, 0, cf);
+
+      // Vane center: from root, halfway along the actual outboard direction
+      const vaneX = sign * cf, vaneZ = sf;
       const bodyPoint = new Vec3(
-        root.x + spanDir.x * p.featherSpan * 0.5,
-        root.y,
-        root.z + spanDir.z * p.featherSpan * 0.5,
+        rootXPos + vaneX * p.featherLength * 0.5,
+        0,
+        vaneZ * p.featherLength * 0.5,
       );
 
       this.feathers.push(new Feather({
         bodyPoint, chordDir, spanDir,
-        chord, span: p.featherSpan,
+        chord, span: p.featherLength,
         airfoil,
-        restTwist: 0,
+        restTwist: p.restTwist,
         torsionalStiffness: p.torsionalStiffness * (0.6 + 0.8 * (1 - t)), // tips softer
         torsionalDamping: 0.05,
       }));

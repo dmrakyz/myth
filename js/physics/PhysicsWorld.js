@@ -10,6 +10,8 @@ import { resetPools } from '../utils/ObjectPool.js';
 const FIXED_DT = 1 / 240;
 const MAX_SUBSTEPS = 8;
 const MAX_SPEED = 80;       // hard velocity clamp, m/s
+const MAX_OMEGA = 120;      // hard angular velocity clamp, rad/s
+const ROT_DRAG_C = 0.8;     // rotational drag coefficient
 const gravityForce = new Vec3();
 
 export class PhysicsWorld {
@@ -74,13 +76,13 @@ export class PhysicsWorld {
       for (const seg of creature.segments.values()) {
         const body = seg.rigidBody;
         for (let i = 0; i < seg.bodyPanels.length; i++) {
-          seg.bodyPanels[i].computeForce(body, this.medium);
+          seg.bodyPanels[i].computeForce(body, this.medium, dt);
         }
       }
       // Wing/fin BET strips
       for (const wing of creature.wings.values()) {
         const seg = creature.segments.get(wing.segmentId);
-        if (seg) wing.computeForces(seg.rigidBody, this.medium);
+        if (seg) wing.computeForces(seg.rigidBody, this.medium, dt);
       }
       // Feathers (with passive pitch integration)
       for (const fa of creature.featherArrays.values()) {
@@ -89,7 +91,7 @@ export class PhysicsWorld {
       }
       // Membranes (forces on cloth + aggregated onto bones)
       for (const mem of creature.membranes.values()) {
-        mem.computeForces(this.medium);
+        mem.computeForces(this.medium, dt);
       }
 
       // 3. Buoyancy + slamming
@@ -117,13 +119,39 @@ export class PhysicsWorld {
         mem.solve(dt);
       }
 
-      // 8. Safety clamps + sea floor
+      // 8. Rotational fluid damping (implicit — unconditionally stable).
+      // Point-strip BET misses the resistance a surface feels rotating about
+      // its own axes; without it light bones can spin up unphysically.
+      // Quadratic-drag decay applied directly to angular momentum:
+      //   L ← L / (1 + dt·λ),  λ = C·ρ·r⁵·|ω| / I_mean
+      for (const seg of creature.segments.values()) {
+        const body = seg.rigidBody;
+        const w = Vec3.len(body.angularVelocity);
+        if (w > 1e-6) {
+          const rho = this.medium.density(body.position);
+          const r = seg.boundingRadius;
+          const e = body.invInertiaWorld.e;
+          const invIMean = (e[0] + e[4] + e[8]) / 3;
+          const lambda = ROT_DRAG_C * rho * r * r * r * r * r * w * invIMean;
+          const decay = 1 / (1 + dt * lambda);
+          Vec3.scale(body.angMomentum, decay, body.angMomentum);
+          body.updateDerived();
+        }
+      }
+
+      // 9. Safety clamps + sea floor
       for (const seg of creature.segments.values()) {
         const body = seg.rigidBody;
         const v2 = Vec3.lenSq(body.velocity);
         if (v2 > MAX_SPEED * MAX_SPEED) {
           const s = MAX_SPEED / Math.sqrt(v2);
           Vec3.scale(body.linMomentum, s, body.linMomentum);
+          body.updateDerived();
+        }
+        const w2 = Vec3.lenSq(body.angularVelocity);
+        if (w2 > MAX_OMEGA * MAX_OMEGA) {
+          const s = MAX_OMEGA / Math.sqrt(w2);
+          Vec3.scale(body.angMomentum, s, body.angMomentum);
           body.updateDerived();
         }
         if (body.position.y < this.groundY + seg.boundingRadius) {

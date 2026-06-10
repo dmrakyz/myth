@@ -23,6 +23,7 @@ export class Segment {
     orientation = null,
     aeroProfile = 'bluntbody',
     color = 0x8899aa,
+    noBodyPanels = false,   // segments fully covered by explicit Wing strips
   } = {}) {
     this.id = `seg_${nextSegmentId++}`;
     this.name = name;
@@ -30,9 +31,12 @@ export class Segment {
     this.dimensions = dimensions.slice();
     this.aeroProfile = aeroProfile;
     this.color = color;
+    this.noBodyPanels = noBodyPanels;
 
+    this.baseMass = mass;
     this.rigidBody = new RigidBody({ mass, position, orientation });
-    this.bodyPanels = [];   // auto FluidSurfaces
+    this.bodyPanels = [];      // auto FluidSurfaces
+    this.attachedMasses = [];  // { mass, point:Vec3 } — feathers, wing strips
     this._inertia = new Mat3();
 
     this.recalculate();
@@ -40,18 +44,45 @@ export class Segment {
 
   get mass() { return this.rigidBody.mass; }
 
+  // Register mass rigidly attached at a body-frame point (feather vanes,
+  // wing strips). Their inertia contribution is what makes light wing bones
+  // numerically and physically well-behaved under aero loads.
+  addAttachedMass(mass, point) {
+    this.attachedMasses.push({ mass, point: point.clone() });
+    this.recalculate();
+  }
+
+  clearAttachedMasses() {
+    this.attachedMasses.length = 0;
+    this.recalculate();
+  }
+
   recalculate() {
     const d = this.dimensions;
     this.volume = volumeForShape(this.shape, d);
     this.boundingRadius = boundingRadiusForShape(this.shape, d);
-    inertiaForShape(this.shape, d, this.rigidBody.mass, this._inertia);
+    inertiaForShape(this.shape, d, this.baseMass, this._inertia);
+
+    // Parallel-axis contributions from attached point masses
+    let totalMass = this.baseMass;
+    const e = this._inertia.e;
+    for (const am of this.attachedMasses) {
+      const { mass: m, point: p } = am;
+      totalMass += m;
+      const x = p.x, y = p.y, z = p.z;
+      e[0] += m * (y * y + z * z); e[1] -= m * x * y;             e[2] -= m * x * z;
+      e[3] -= m * x * y;           e[4] += m * (x * x + z * z);   e[5] -= m * y * z;
+      e[6] -= m * x * z;           e[7] -= m * y * z;             e[8] += m * (x * x + y * y);
+    }
+
+    this.rigidBody.setMass(totalMass);
     this.rigidBody.setInertia(this._inertia);
     this.rigidBody.updateDerived();
     this._buildBodyPanels();
   }
 
   setMass(m) {
-    this.rigidBody.setMass(m);
+    this.baseMass = m;
     this.recalculate();
   }
 
@@ -66,11 +97,14 @@ export class Segment {
     this._buildBodyPanels();
   }
 
-  // Build three orthogonal panels capturing projected areas along x, y, z.
-  // Each panel is a BET strip whose chord/span correspond to the segment's
-  // extents in the plane perpendicular to that axis.
+  // Build BET panels capturing the segment's projected areas. The lifting
+  // (±y) and side (±x) panels are split into fore and aft halves so the body
+  // produces physically correct weathercock moments and rotational damping —
+  // a fuselage's side area ahead of vs. behind the CG is what makes it
+  // directionally stable, and a single central panel can't represent that.
   _buildBodyPanels() {
     this.bodyPanels.length = 0;
+    if (this.noBodyPanels) return;
     const airfoil = AirfoilData.get(this.aeroProfile);
     const d = this.dimensions;
 
@@ -86,7 +120,7 @@ export class Segment {
     // Ellipse-area correction for non-box shapes (π/4 of bounding rectangle)
     const k = this.shape === 'box' ? 1.0 : Math.PI / 4;
 
-    // Panel facing ±z (flow along z): chord along z, span along x, area ~ x·y
+    // Frontal panel (flow along z): single central strip, area ~ x·y
     this.bodyPanels.push(new FluidSurface({
       bodyPoint: new Vec3(0, 0, 0),
       chordDir: new Vec3(0, 0, 1),
@@ -94,23 +128,26 @@ export class Segment {
       chord: 2 * ez, span: (2 * ex) * (2 * ey) * k / (2 * ez + 1e-9),
       airfoil,
     }));
-    // Panel facing ±y: chord along z, span along x (lifting orientation),
-    // area ~ x·z — this is the panel that gives a torso crossflow lift
-    this.bodyPanels.push(new FluidSurface({
-      bodyPoint: new Vec3(0, 0, 0),
-      chordDir: new Vec3(0, 0, 1),
-      spanDir: new Vec3(1, 0, 0),
-      chord: 2 * ez, span: 2 * ex * k,
-      airfoil,
-    }));
-    // Panel facing ±x: chord along z, span along y, area ~ y·z
-    this.bodyPanels.push(new FluidSurface({
-      bodyPoint: new Vec3(0, 0, 0),
-      chordDir: new Vec3(0, 0, 1),
-      spanDir: new Vec3(0, 1, 0),
-      chord: 2 * ez, span: 2 * ey * k,
-      airfoil,
-    }));
+    // Lifting panels (±y projected area ~ x·z): fore + aft halves
+    for (const zOff of [-ez * 0.5, ez * 0.5]) {
+      this.bodyPanels.push(new FluidSurface({
+        bodyPoint: new Vec3(0, 0, zOff),
+        chordDir: new Vec3(0, 0, 1),
+        spanDir: new Vec3(1, 0, 0),
+        chord: ez, span: 2 * ex * k,
+        airfoil,
+      }));
+    }
+    // Side panels (±x projected area ~ y·z): fore + aft halves
+    for (const zOff of [-ez * 0.5, ez * 0.5]) {
+      this.bodyPanels.push(new FluidSurface({
+        bodyPoint: new Vec3(0, 0, zOff),
+        chordDir: new Vec3(0, 0, 1),
+        spanDir: new Vec3(0, 1, 0),
+        chord: ez, span: 2 * ey * k,
+        airfoil,
+      }));
+    }
   }
 
   serialize() {

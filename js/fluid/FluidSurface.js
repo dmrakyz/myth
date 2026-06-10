@@ -1,4 +1,5 @@
 import { Vec3 } from '../math/Vec3.js';
+import { forceLimitScale } from './ForceLimiter.js';
 
 // One Blade Element Theory strip. Universal: wings, feathers, fins, tail
 // surfaces, and auto-generated body panels all use this class — only the
@@ -31,6 +32,7 @@ export class FluidSurface {
     span = 0.1,
     airfoil,
     camberAngle = 0,   // built-in incidence/twist about span axis (radians)
+    inducedDragK = 0.06,  // Cdi = K·Cl², K ≈ 1/(π·e·AR); tables hold profile drag only
   }) {
     this.bodyPoint = bodyPoint.clone();
     this.chordDir = chordDir.clone(); Vec3.norm(this.chordDir, this.chordDir);
@@ -39,6 +41,7 @@ export class FluidSurface {
     this.span = span;
     this.airfoil = airfoil;
     this.camberAngle = camberAngle;
+    this.inducedDragK = inducedDragK;
 
     // Runtime-controllable extra pitch about span axis (feather rachis
     // rotation, wing twist control). Applied in addition to camberAngle.
@@ -53,7 +56,8 @@ export class FluidSurface {
   }
 
   // Compute and apply aerodynamic force on parentBody. Returns |force|.
-  computeForce(parentBody, medium) {
+  // dt is needed for the stability force limiter.
+  computeForce(parentBody, medium, dt) {
     parentBody.localToWorld(this.bodyPoint, worldPoint);
 
     // Resolve strip frame to world
@@ -102,13 +106,22 @@ export class FluidSurface {
     const alpha = Math.atan2(wNormal, wChord);
     this.lastAlpha = alpha;
 
+    if (this.debugLog) {
+      console.log(`  [strip] vel=(${vel.x.toFixed(2)},${vel.y.toFixed(2)},${vel.z.toFixed(2)}) ` +
+        `vPerp=(${vPerp.x.toFixed(2)},${vPerp.y.toFixed(2)},${vPerp.z.toFixed(2)}) ` +
+        `chordW=(${chordW.x.toFixed(2)},${chordW.y.toFixed(2)},${chordW.z.toFixed(2)}) ` +
+        `spanW=(${spanW.x.toFixed(2)},${spanW.y.toFixed(2)},${spanW.z.toFixed(2)}) ` +
+        `normW=(${normalW.x.toFixed(2)},${normalW.y.toFixed(2)},${normalW.z.toFixed(2)}) ` +
+        `pitch=${((this.camberAngle + this.pitchOffset) * 57.3).toFixed(1)}° α=${(alpha * 57.3).toFixed(1)}°`);
+    }
+
     const rho = medium.density(worldPoint);
     const qDyn = 0.5 * rho * vMag * vMag;
     this.lastDynPressure = qDyn;
     const area = this.chord * this.span;
 
     const Cl = this.airfoil.Cl(alpha);
-    const Cd = this.airfoil.Cd(alpha);
+    const Cd = this.airfoil.Cd(alpha) + this.inducedDragK * Cl * Cl;
 
     // Drag along the apparent wind w = -vPerp; lift = ŵ × span, which lies
     // in the chord-normal plane perpendicular to the flow. The sign works out
@@ -123,6 +136,11 @@ export class FluidSurface {
 
     Vec3.scale(liftDir, L, force);
     Vec3.addScaled(force, dragDir, D, force);
+
+    // Aeroelastic-relief limiter: prevents explicit-integration divergence
+    // on very light parts (see ForceLimiter.js)
+    const scale = forceLimitScale(parentBody, worldPoint, force, vMag, dt);
+    if (scale < 1) Vec3.scale(force, scale, force);
 
     parentBody.applyForce(force, worldPoint);
 

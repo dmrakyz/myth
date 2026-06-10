@@ -3,7 +3,11 @@ import { clamp } from '../math/MathUtils.js';
 
 // Sequential impulse solver for joints. Velocity-level constraints with
 // Baumgarte positional stabilization. Runs after integration each substep.
-const BAUMGARTE = 0.15;
+// The angular coefficient is deliberately stiffer: sustained aerodynamic
+// moments on light wing bones otherwise hold hinge axes visibly misaligned
+// (a steady-state constraint violation that twists wing incidence).
+const BAUMGARTE = 0.25;
+const BAUMGARTE_ANG = 0.6;
 
 // Scratch
 const rA = new Vec3(), rB = new Vec3();
@@ -89,7 +93,7 @@ function solveAxisAlignment(joint, invDt) {
   const along = Vec3.dot(relV, axisWA);
   Vec3.addScaled(relV, axisWA, -along, relV);
 
-  Vec3.addScaled(relV, err, -BAUMGARTE * invDt, corr);
+  Vec3.addScaled(relV, err, -BAUMGARTE_ANG * invDt, corr);
 
   // Effective angular mass (scalar approx along correction direction)
   const len = Vec3.len(corr);
@@ -156,7 +160,7 @@ function solveFixedOrientation(joint, invDt) {
   Vec3.cross(axisWB, axisWA, err);
 
   Vec3.sub(b.angularVelocity, a.angularVelocity, relV);
-  Vec3.addScaled(relV, err, -BAUMGARTE * invDt, corr);
+  Vec3.addScaled(relV, err, -BAUMGARTE_ANG * invDt, corr);
 
   const len = Vec3.len(corr);
   if (len < 1e-10) return;

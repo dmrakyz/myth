@@ -1,5 +1,6 @@
 import { Vec3 } from '../math/Vec3.js';
 import { ClothBody } from '../physics/ClothBody.js';
+import { forceLimitScale } from '../fluid/ForceLimiter.js';
 
 // Membrane wing (bat/dragon): an XPBD cloth grid stretched between a chain
 // of wing bones (leading edge) and a trailing anchor (torso/leg side).
@@ -119,7 +120,7 @@ export class WingMembrane {
     return Vec3.norm(out, out);
   }
 
-  computeForces(medium) {
+  computeForces(medium, dt) {
     let total = 0;
     for (let r = 0; r < this.rows; r++) {
       for (let c = 0; c < this.cols; c++) {
@@ -139,9 +140,14 @@ export class WingMembrane {
         this.cloth.addForce(i, f.x, f.y, f.z);
 
         // Flight force on the skeleton, applied at the particle position so
-        // the supporting bone feels the correct torque
+        // the supporting bone feels the correct torque. Limited for explicit
+        // integration stability on light bones (see ForceLimiter.js).
         const target = this._forceTarget[i];
-        if (target) target.applyForce(f, pPos);
+        if (target) {
+          const scale = forceLimitScale(target, pPos, f, Vec3.len(relV), dt);
+          if (scale < 1) Vec3.scale(f, scale, f);
+          target.applyForce(f, pPos);
+        }
 
         total += Math.abs(mag);
       }
