@@ -1,5 +1,7 @@
 import { Vec3 } from '../math/Vec3.js';
 import { forceLimitScale } from './ForceLimiter.js';
+import { AirfoilData } from './AirfoilData.js';
+import { lerp } from '../math/MathUtils.js';
 
 // One Blade Element Theory strip. Universal: wings, feathers, fins, tail
 // surfaces, and auto-generated body panels all use this class — only the
@@ -46,6 +48,12 @@ export class FluidSurface {
     // Runtime-controllable extra pitch about span axis (feather rachis
     // rotation, wing twist control). Applied in addition to camberAngle.
     this.pitchOffset = 0;
+
+    // Stall hysteresis state (0 = attached, 1 = fully separated). Separation
+    // sets in fast when α leaves the table's attached range; reattachment is
+    // slow and only begins once α has dropped well below the stall angle —
+    // recovering from a stall costs time and altitude, as it should.
+    this.stallState = 0;
 
     // Telemetry (read by HUD / debug renderer after each substep)
     this.lastAlpha = 0;
@@ -120,8 +128,40 @@ export class FluidSurface {
     this.lastDynPressure = qDyn;
     const area = this.chord * this.span;
 
-    const Cl = this.airfoil.Cl(alpha);
-    const Cd = this.airfoil.Cd(alpha) + this.inducedDragK * Cl * Cl;
+    let Cl = this.airfoil.Cl(alpha);
+    let Cd = this.airfoil.Cd(alpha) + this.inducedDragK * Cl * Cl;
+
+    // ── Stall hysteresis with dynamic-stall delay ─────────────────────────
+    // α beyond the table's attached range separates the boundary layer in
+    // ~40 ms. Dropping the nose does NOT instantly restore clean flow: the
+    // strip stays on degraded post-stall coefficients until α falls below
+    // ~70% of the stall angle, then reattaches over ~0.35 s. Exception: when
+    // the apparent wind is dominated by the strip's own motion (flapping),
+    // the leading-edge vortex of dynamic stall keeps flow effectively
+    // attached at angles far past static stall — so unsteadiness suppresses
+    // separation onset. Profiles tabulated over the full ±180° (blunt
+    // bodies) never leave their range and skip all of this.
+    const aMaxT = this.airfoil.alphaMax, aMinT = this.airfoil.alphaMin;
+    const beyond = alpha > aMaxT || alpha < aMinT;
+    if (beyond || this.stallState > 0) {
+      if (beyond) {
+        // Unsteadiness: fraction of the apparent wind contributed by the
+        // strip's rotation about its parent body's CG (flap plunge).
+        Vec3.sub(worldPoint, parentBody.position, tmp);
+        Vec3.cross(parentBody.angularVelocity, tmp, tmp);
+        const u = Math.min(1, Vec3.len(tmp) / (vMag + 0.1));
+        const grow = Math.max(0, 1 - 1.6 * u);
+        this.stallState = Math.min(1, this.stallState + (dt / 0.04) * grow);
+      } else if (alpha < aMaxT * 0.7 && alpha > aMinT * 0.7) {
+        this.stallState = Math.max(0, this.stallState - dt / 0.35);
+      }
+      if (this.stallState > 0) {
+        const sepCl = AirfoilData.flatPlateCl(alpha);
+        const sepCd = AirfoilData.flatPlateCd(alpha) + 0.05;
+        Cl = lerp(Cl, sepCl, this.stallState);
+        Cd = lerp(Cd, sepCd, this.stallState);
+      }
+    }
 
     // Drag along the apparent wind w = -vPerp; lift = ŵ × span, which lies
     // in the chord-normal plane perpendicular to the flow. The sign works out
