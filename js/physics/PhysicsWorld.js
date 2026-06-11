@@ -200,17 +200,28 @@ export class PhysicsWorld {
             Vec3.cross(ct2, contactR, ct1);
             const k = body.invMass + ct1.y;
             if (k > 1e-9) {
-              contactImp.set(0, -contactV.y * 0.9 / k, 0);
+              const jn = -contactV.y * 0.9 / k;
+              contactImp.set(0, jn, 0);
               body.applyImpulse(contactImp, contactW);
+              // Coulomb friction: tangential impulse capped at μ·jn, opposing
+              // the slide. Load-proportional, so a light skimming touch in a
+              // takeoff run barely brakes while a hard landing grips firmly.
+              const vt = Math.hypot(contactV.x, contactV.z);
+              if (vt > 1e-6) {
+                const jt = Math.min(0.6 * jn, vt / body.invMass);
+                contactImp.set(-contactV.x / vt * jt, 0, -contactV.z / vt * jt);
+                body.applyCentralImpulse
+                  ? body.applyCentralImpulse(contactImp)
+                  : (body.linMomentum.x += contactImp.x,
+                     body.linMomentum.z += contactImp.z,
+                     body.updateDerived());
+              }
             }
           }
         }
         if (touching) {
           body.position.y += maxPen;
-          // Friction: exponential decay of horizontal momentum while touching
-          const fr = 1 / (1 + dt * 6);
-          body.linMomentum.x *= fr;
-          body.linMomentum.z *= fr;
+          // Rolling/scrubbing resistance while in contact
           Vec3.scale(body.angMomentum, 1 / (1 + dt * 4), body.angMomentum);
           body.updateDerived();
         }

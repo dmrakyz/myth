@@ -3,7 +3,7 @@ import { Creature } from '../Creature.js';
 import { Segment } from '../Segment.js';
 import { Joint } from '../../physics/Joint.js';
 import { Muscle } from '../../physics/Muscle.js';
-import { Wing } from '../../fluid/Wing.js';
+import { Wing, applyPlanform } from '../../fluid/Wing.js';
 import { FluidSurface } from '../../fluid/FluidSurface.js';
 import { FeatherArray } from '../FeatherArray.js';
 import { AirfoilData } from '../../fluid/AirfoilData.js';
@@ -97,6 +97,9 @@ export function createBird() {
 
   // --- Wings (mirrored helper) ---
   const twistWiring = [];
+  // Main-wing planform accumulator: every lifting surface of the wing pair
+  // plus its spanwise center, for the finite-wing (3D) corrections below.
+  const wingSurfs = [], wingCx = [];
   for (const side of [+1, -1]) {
     const sideName = side > 0 ? 'R' : 'L';
 
@@ -167,6 +170,8 @@ export function createBird() {
       }));
       // Secondaries + covert tissue mass carried by the arm bone
       inner.addAttachedMass(chord * 0.075 * 0.35, bodyPoint);
+      wingSurfs.push(innerStrips[i]);
+      wingCx.push(Math.abs(side * 0.145 + bodyPoint.x));
     }
     const innerWing = c.addWing(new Wing({
       name: `innerWing${sideName}`, segmentId: inner.id, strips: innerStrips,
@@ -175,16 +180,19 @@ export function createBird() {
     // Tertials: the strip between wing root and body, carried by the torso.
     // Fills the lift gap at the root (real birds have no slot there) and puts
     // a bit of area at the CG, which steadies roll without adding moment arm.
+    const tertialStrip = new FluidSurface({
+      bodyPoint: new Vec3(side * 0.045, 0.025, -0.02),
+      chordDir: new Vec3(0, 0, 1), spanDir: new Vec3(1, 0, 0),
+      chord: 0.115, span: 0.05,
+      airfoil: naca,
+      camberAngle: 0.12,
+    });
     c.addWing(new Wing({
       name: `tertials${sideName}`, segmentId: torso.id,
-      strips: [new FluidSurface({
-        bodyPoint: new Vec3(side * 0.045, 0.025, -0.02),
-        chordDir: new Vec3(0, 0, 1), spanDir: new Vec3(1, 0, 0),
-        chord: 0.115, span: 0.05,
-        airfoil: naca,
-        camberAngle: 0.12,
-      })],
+      strips: [tertialStrip],
     }));
+    wingSurfs.push(tertialStrip);
+    wingCx.push(0.045);
 
     // Alula (bastard wing): small high-AoA device at the wrist's leading
     // edge. A flat plate keeps generating force past the main wing's stall,
@@ -221,10 +229,34 @@ export function createBird() {
     for (const feather of primaries.feathers) {
       const fMass = feather.surface.chord * feather.surface.span * 0.08;
       outer.addAttachedMass(fMass, feather.surface.bodyPoint);
+      wingSurfs.push(feather.surface);
+      wingCx.push(Math.abs(side * 0.33 + feather.surface.bodyPoint.x));
     }
 
     // Active twist (pronation/supination) wired up after the controller exists
     twistWiring.push(innerWing, primaries);
+  }
+
+  // --- Finite-wing (3D) corrections ---
+  // The full wing-pair planform sets induced drag and the downwash-reduced
+  // lift slope on every main-wing strip; tips additionally lose lift to the
+  // tip vortices. Tail surfaces are low-AR but ride the body's carryover
+  // lift, credited via the carryover factor.
+  {
+    let area = 0, halfSpan = 0;
+    for (let i = 0; i < wingSurfs.length; i++) {
+      const s = wingSurfs[i];
+      area += s.chord * s.span;
+      halfSpan = Math.max(halfSpan, wingCx[i] + 0.5 * s.span * Math.abs(s.spanDir.x));
+    }
+    const stations = wingCx.map(cx => cx / halfSpan);
+    applyPlanform(wingSurfs, { span: 2 * halfSpan, area, stations });
+    // Unsteady-lift augmentation on the wing strips: flapping force comes
+    // from the strips' real plunge kinematics (LEV/rotational/added-mass
+    // boost in FluidSurface), not from an artificial body force.
+    for (const s of wingSurfs) s.unsteadyGain = 1.0;
+    applyPlanform([tailSurfaceStrip], { span: 0.16, area: 0.13 * 0.16, carryover: 1.6 });
+    applyPlanform([tailFinStrip], { span: 0.16, area: 0.14 * 0.16, carryover: 1.6 });
   }
 
   // --- Flapping controller ---
@@ -245,11 +277,11 @@ export function createBird() {
   // torque than the wrist fold alone, which saturates in a big departure.
   ctrl.setPattern('flapR', {
     frequency: FLAP_FREQ, amplitude: 0.7, phase: 0, restAngle: 0.22,
-    waveform: 'downbeat', stabRoll: -0.25, tuckAngle: 0.30,
+    waveform: 'downbeat', stabRoll: -0.40, tuckAngle: 0.30,
   });
   ctrl.setPattern('flapL', {
     frequency: FLAP_FREQ, amplitude: -0.7, phase: 0, restAngle: -0.22,
-    waveform: 'downbeat', stabRoll: -0.25, tuckAngle: -0.30,
+    waveform: 'downbeat', stabRoll: -0.40, tuckAngle: -0.30,
   });
   // Wrists ride the same cycle as the shoulders ('foldup' is keyed to the
   // downbeat phases): a slight extension whip through the downstroke, then
@@ -260,12 +292,12 @@ export function createBird() {
   ctrl.setPattern('wristR', {
     frequency: FLAP_FREQ, amplitude: 0.35, phase: 0, restAngle: 0.05,
     waveform: 'foldup',
-    stabRoll: -0.6, tuckAngle: -0.85,
+    stabRoll: -1.0, tuckAngle: -0.85,
   });
   ctrl.setPattern('wristL', {
     frequency: FLAP_FREQ, amplitude: -0.35, phase: 0, restAngle: -0.05,
     waveform: 'foldup',
-    stabRoll: -0.6, tuckAngle: 0.85,
+    stabRoll: -1.0, tuckAngle: 0.85,
   });
   // Pronation/supination through the stroke (see FlappingController.twists).
   // Gentle servo: a hard AoA clamp over-relieves and dumps the lift the
@@ -281,7 +313,9 @@ export function createBird() {
   });
   // Active rudder (tail twist): yaw-rate damping + sideslip weathercock +
   // yaw-stick authority on the vertical fin strip.
-  ctrl.setRudder(tailFinStrip, { yawGain: 0.5, slipGain: 0.04, cmdGain: 0.3, max: 0.4 });
+  // Gains sized for the fin's 3D-corrected (halved) lift slope: the servo
+  // deflects roughly twice as far for the same weathercock force.
+  ctrl.setRudder(tailFinStrip, { yawGain: 0.9, slipGain: 0.08, cmdGain: 0.55, max: 0.45 });
   // Active tail fan: spreading grows the physical tail area (flare/brake)
   ctrl.setTailFan(tailSurfaceStrip, { gain: 0.8 });
   c.flappingController = ctrl;

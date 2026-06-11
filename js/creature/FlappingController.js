@@ -72,6 +72,12 @@ export class FlappingController {
     this.qLpf = 50;                // cutoff (rad/s)
     this._qF = 0;
 
+    // Takeoff assist (0..1), written by the ground controller while flapping
+    // near the ground. The phugoid damper (vyDamp) reads any climb rate as a
+    // disturbance and noses over — correct in cruise, fatal at a takeoff hop
+    // apex. During takeoff it is suppressed and the AoA setpoint is biased up.
+    this.takeoffAssist = 0;
+
     // Active wing twist (pronation/supination through the stroke): registered
     // via addWingTwist(). Each strip's pitchOffset servos to keep its measured
     // AoA inside the attached range — the leading edge pitches down into the
@@ -81,17 +87,16 @@ export class FlappingController {
     // already sits in range.
     this.twists = [];
 
-    // Unsteady-lift augmentation (N at full flap). Quasi-steady blade-element
-    // theory underestimates flapping force because it ignores the unsteady
-    // mechanisms real flapping exploits — delayed-stall / leading-edge vortex,
-    // rotational (Kramer) lift, and added-mass reaction — which together can
-    // roughly double peak force on a downstroke. We model their cycle-averaged
-    // net as a body-up force scaled by flap power, applied at the CG so it adds
-    // genuine climb authority without injecting any roll/yaw asymmetry. This is
-    // what lets powered flight climb while a pure glide sinks.
-    this.flapBoost = 1.7;
-    this.climbRate = 1.0;          // target climb speed for adaptive boost (m/s)
-    this.flapBoostGain = 0.6;      // boost ramps up when vy < climbRate, down when above
+    // Residual cycle-averaged climb assist (N at full flap). The unsteady
+    // flapping force itself now lives on the strips (FluidSurface
+    // unsteadyGain — LEV / rotational lift / added mass scaled by each
+    // strip's real plunge kinematics), so thrust has the correct position
+    // and direction. This small CG term only covers the cycle-averaged
+    // wake-capture effect the strip model can't see, and trims the climb
+    // rate; it is a fraction of its former value.
+    this.flapBoost = 1.0;
+    this.climbRate = 1.0;          // target climb speed for adaptive assist (m/s)
+    this.flapBoostGain = 0.5;      // assist ramps up when vy < climbRate, down when above
   }
 
   // Register active twist for a Wing (BET strips) or a FeatherArray.
@@ -203,8 +208,9 @@ export class FlappingController {
       // AoA reflex can't see). Climb authority now comes from flapBoost (a
       // force), not from this setpoint, so damping v_y no longer fights the
       // climb — it just smooths it.
+      const ta = clamp(this.takeoffAssist, 0, 1);
       const trim = this.trimPitch + 0.10 * clamp(input.pitchUp, -1, 1)
-        - g.vyDamp * clamp(v.y, -4, 4);
+        - g.vyDamp * clamp(v.y, -4, 4) * (1 - ta) + 0.06 * ta;
       // Yaw rate biases the roll loop so a slow heading drift is met with an
       // opposing bank instead of accumulating into a spiral. Pilot roll input
       // bypasses this (commanded turns shouldn't be fought).
@@ -256,7 +262,10 @@ export class FlappingController {
       const hx = fwdW.x, hz = fwdW.z;
       const hlen = Math.hypot(hx, hz) || 1;
       const vy = rb.velocity.y;
-      const f = Math.max(0.5, this.flapBoost + this.flapBoostGain * clamp(this.climbRate - vy, -3, 3)) * flap;
+      // Anaerobic burst: takeoff power is ~2× cruise for the first seconds —
+      // scoped to near-ground flapping via takeoffAssist, gone by 4 m AGL.
+      const burst = 1 + 1.3 * clamp(this.takeoffAssist, 0, 1);
+      const f = Math.max(0, this.flapBoost + this.flapBoostGain * clamp(this.climbRate - vy, -3, 3)) * flap * burst;
       // direction = normalize(worldUp + 0.5·heading); ~63% up, ~37% forward
       let dx = 0.5 * hx / hlen, dy = 1.0, dz = 0.5 * hz / hlen;
       const dl = Math.hypot(dx, dy, dz);

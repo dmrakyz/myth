@@ -37,8 +37,8 @@ export class GroundController {
     this.walkForceN = 2.2;      // forward drive force per gait cycle (N)
     this.footFriction = 1.2;    // ground grip N·s/m — kills residual slide
     this.turnTorque = 0.12;     // yaw torque from stick x (N·m)
-    this.jumpSpeed = 4.0;       // takeoff vertical impulse (m/s)
-    this.jumpForward = 3.0;     // takeoff forward impulse (m/s)
+    this.jumpSpeed = 4.5;       // takeoff vertical impulse (m/s)
+    this.jumpForward = 4.5;     // takeoff forward impulse (m/s)
 
     // Upright PD: torque along upW × worldUp rights the bird from any
     // attitude (no small-angle breakdown when it lands beak-first)
@@ -93,6 +93,11 @@ export class GroundController {
       //  • FLAP mode on ground (flapRate = 1): wings stay ready  ✓ (test passes)
       const tuckTgt = (this.grounded && flap < 0.3) ? 1 : 0;
       ctrl.tuck += (tuckTgt - ctrl.tuck) * Math.min(1, dt * 3);
+      // Takeoff assist: while flapping hard near the ground, tell the flight
+      // reflex this climb is intentional (suppresses the phugoid damper that
+      // otherwise noses over at every hop apex). Fades out by 4 m AGL.
+      ctrl.takeoffAssist = (flap > 0.5 && overLand)
+        ? clamp(1 - agl / 4, 0, 1) : 0;
     }
 
     // ── Leg struts: springy landing gear at the two hip anchors ───────────
@@ -112,26 +117,44 @@ export class GroundController {
       }
     }
 
-    // ── Foot friction: grip kills residual horizontal slide on contact ────
+    // ── Foot friction: grip kills residual horizontal slide on contact.
+    //    Fades out with flap input — a bird in its takeoff run is up on its
+    //    toes, not digging in; full grip would eat the hop-run's speed. ──
     if (this.grounded) {
-      legForce.set(-this.footFriction * rb.velocity.x, 0, -this.footFriction * rb.velocity.z);
+      const grip = this.footFriction * (1 - flap);
+      legForce.set(-grip * rb.velocity.x, 0, -grip * rb.velocity.z);
       rb.applyForce(legForce, p);
     }
 
-    // ── Upright correction: active on the ground and through slow low hops,
-    //    so the bird holds attitude during a hop-run takeoff instead of
-    //    tumbling. Fades out above ~4.5 m/s where the wings have enough
-    //    authority for the flight reflexes to take over (and to pitch up
-    //    and climb away — the assist must not clamp the bird level forever).
-    if (this.grounded || (overLand && agl < 1.2 && this.legExtend > 0.3 && speed < 4.5)) {
+    // ── Upright correction: active on the ground and through low hops, so
+    //    the bird holds attitude during a hop-run takeoff instead of
+    //    tumbling. While flapping hard the target attitude is NOSE-UP (the
+    //    takeoff posture real birds hold), so the righting spring promotes
+    //    the climb-out instead of clamping the bird level; above 1.2 m AGL
+    //    the assist is gone and the flight reflexes own the attitude.
+    if (this.grounded || (overLand && agl < 1.2 && this.legExtend > 0.3
+        && (speed < 4.5 || flap > 0.5))) {
       Quat.rotateVec(rb.orientation, UP, upW);
       const w = rb.angularVelocity;
 
-      // Righting spring: torque along upW × worldUp = (-upW.z, 0, upW.x)
-      // rotates the body-up vector toward world-up; magnitude = sin(tilt)
+      // Target up vector: world-up during the acceleration run, tilting
+      // backward (nose-up rotation) as airspeed builds past 5.5 m/s — the
+      // two-phase takeoff real birds fly: stay flat and fast in ground
+      // effect first, rotate and climb only with speed in hand. Righting
+      // torque along upW × target; magnitude = sin(tilt error).
+      let tx = 0, ty = 1, tz = 0;
+      const rot = 0.25 * clamp((speed - 5.5) / 2, 0, 1);
+      if (flap > 0.5 && !this.standing && rot > 0.01) {
+        Quat.rotateVec(rb.orientation, FWD, fwdW);
+        const hl = Math.hypot(fwdW.x, fwdW.z) || 1;
+        tx = -fwdW.x / hl * rot; tz = -fwdW.z / hl * rot;
+        const tl = Math.hypot(tx, 1, tz);
+        tx /= tl; ty = 1 / tl; tz /= tl;
+      }
       const k = this.uprightK;
-      rb.angMomentum.x += k * -upW.z * dt;
-      rb.angMomentum.z += k *  upW.x * dt;
+      rb.angMomentum.x += k * (upW.y * tz - upW.z * ty) * dt;
+      rb.angMomentum.y += k * (upW.z * tx - upW.x * tz) * dt;
+      rb.angMomentum.z += k * (upW.x * ty - upW.y * tx) * dt;
 
       // Tumble damping on roll/pitch rates, lighter damping on yaw rate so
       // gait hip-anchor torques don't accumulate into heading drift

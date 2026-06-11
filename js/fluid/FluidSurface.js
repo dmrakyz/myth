@@ -45,6 +45,20 @@ export class FluidSurface {
     this.camberAngle = camberAngle;
     this.inducedDragK = inducedDragK;
 
+    // Finite-wing lift-slope factor (3D downwash correction + tip loss),
+    // set by applyPlanform() from the owning wing's real aspect ratio.
+    // 2D tables assume an infinite wing; a real wing's trailing vortices
+    // induce downwash that reduces the effective lift slope to ~AR/(AR+2).
+    this.clScale = 1;
+
+    // Unsteady-lift gain: quasi-steady BET underestimates the force on a
+    // rapidly plunging strip — the leading-edge vortex, rotational (Kramer)
+    // lift and added-mass reaction together roughly double peak downstroke
+    // force. Cl is scaled by (1 + gain·u) where u is the fraction of the
+    // apparent wind contributed by the strip's own motion (u ≈ 0 in a glide,
+    // so this is inert outside flapping). Set on wing strips by presets.
+    this.unsteadyGain = 0;
+
     // Runtime-controllable extra pitch about span axis (feather rachis
     // rotation, wing twist control). Applied in addition to camberAngle.
     this.pitchOffset = 0;
@@ -128,7 +142,16 @@ export class FluidSurface {
     this.lastDynPressure = qDyn;
     const area = this.chord * this.span;
 
-    let Cl = this.airfoil.Cl(alpha);
+    // Unsteadiness u: fraction of the apparent wind contributed by the
+    // strip's rotation about its parent body's CG (flap plunge). ~0 in a
+    // glide; approaches 1 when the strip's own motion dominates.
+    Vec3.sub(worldPoint, parentBody.position, tmp);
+    Vec3.cross(parentBody.angularVelocity, tmp, tmp);
+    const u = Math.min(1, Vec3.len(tmp) / (vMag + 0.1));
+
+    let Cl = this.clScale * this.airfoil.Cl(alpha);
+    // Unsteady augmentation (LEV / rotational lift / added mass): see field
+    if (this.unsteadyGain > 0) Cl *= 1 + this.unsteadyGain * u;
     let Cd = this.airfoil.Cd(alpha) + this.inducedDragK * Cl * Cl;
 
     // ── Stall hysteresis with dynamic-stall delay ─────────────────────────
@@ -145,11 +168,6 @@ export class FluidSurface {
     const beyond = alpha > aMaxT || alpha < aMinT;
     if (beyond || this.stallState > 0) {
       if (beyond) {
-        // Unsteadiness: fraction of the apparent wind contributed by the
-        // strip's rotation about its parent body's CG (flap plunge).
-        Vec3.sub(worldPoint, parentBody.position, tmp);
-        Vec3.cross(parentBody.angularVelocity, tmp, tmp);
-        const u = Math.min(1, Vec3.len(tmp) / (vMag + 0.1));
         const grow = Math.max(0, 1 - 1.6 * u);
         this.stallState = Math.min(1, this.stallState + (dt / 0.04) * grow);
       } else if (alpha < aMaxT * 0.7 && alpha > aMinT * 0.7) {
