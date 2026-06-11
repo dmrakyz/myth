@@ -32,6 +32,9 @@ export class Feather {
     this.maxTwist = maxTwist;
 
     this.pitch = restTwist;
+    // Active pitch command (wing-twist control) added on top of the passive
+    // rachis equilibrium; written by FlappingController's twist servo.
+    this.controlPitch = 0;
     this.surface.pitchOffset = this.pitch;
   }
 
@@ -55,7 +58,7 @@ export class Feather {
     );
     const lambda = Math.min(1, dt / 0.008);
     this.pitch += lambda * (target - this.pitch);
-    this.surface.pitchOffset = this.pitch;
+    this.surface.pitchOffset = this.pitch + this.controlPitch;
     return mag;
   }
 }

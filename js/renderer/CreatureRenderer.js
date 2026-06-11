@@ -84,7 +84,9 @@ function makeFeatherMesh(feather) {
     color: 0xddd0b0, emissive: 0x0c0a04,
     side: THREE.DoubleSide, transparent: true, opacity: 0.82, shininess: 15,
   });
-  return new THREE.Mesh(geo, mat);
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.userData.localQ = quatFromFrame(s.chordDir, s.spanDir);
+  return mesh;
 }
 
 export class CreatureRenderer {
@@ -149,7 +151,9 @@ export class CreatureRenderer {
     }
 
     // Wing strips: world_pos = body_pos + R_body * bodyPoint
-    //              world_rot = R_body * local_strip_rot
+    //              world_rot = R_body * pitch_about_span * local_strip_rot
+    // Pitch = camber + active twist command, so pronation/supination through
+    // the flap cycle is visible on the wing surface.
     for (const { strip, segId, mesh } of this.stripEntries) {
       const seg = c.segments.get(segId);
       if (!seg) continue;
@@ -158,10 +162,14 @@ export class CreatureRenderer {
       const wp = rotByQuat(rb.orientation, bp.x, bp.y, bp.z);
       mesh.position.set(rb.position.x + wp.x, rb.position.y + wp.y, rb.position.z + wp.z);
       _bodyQ.set(rb.orientation.x, rb.orientation.y, rb.orientation.z, rb.orientation.w);
-      mesh.quaternion.copy(_bodyQ).multiply(mesh.userData.localQ);
+      const pitch = strip.camberAngle + strip.pitchOffset;
+      const sd = strip.spanDir;
+      _p.set(sd.x, sd.y, sd.z);
+      _localQ.setFromAxisAngle(_p, pitch);
+      mesh.quaternion.copy(_bodyQ).multiply(_localQ).multiply(mesh.userData.localQ);
     }
 
-    // Feathers: same as strips but with passive pitch applied
+    // Feathers: same as strips, pitch = passive rachis twist + active command
     for (const { feather, segId, mesh } of this.featherEntries) {
       const seg = c.segments.get(segId);
       if (!seg) continue;
@@ -171,14 +179,11 @@ export class CreatureRenderer {
       const wp = rotByQuat(rb.orientation, bp.x, bp.y, bp.z);
       mesh.position.set(rb.position.x + wp.x, rb.position.y + wp.y, rb.position.z + wp.z);
 
-      // Apply passive pitch rotation about spanDir
-      const pitch = feather.pitch ?? 0;
       const sd = s.spanDir;
-      const axisQ = new THREE.Quaternion().setFromAxisAngle(
-        new THREE.Vector3(sd.x, sd.y, sd.z), pitch);
-      const baseQ = quatFromFrame(s.chordDir, s.spanDir);
+      _p.set(sd.x, sd.y, sd.z);
+      _localQ.setFromAxisAngle(_p, s.pitchOffset);
       _bodyQ.set(rb.orientation.x, rb.orientation.y, rb.orientation.z, rb.orientation.w);
-      mesh.quaternion.copy(_bodyQ).multiply(axisQ).multiply(baseQ);
+      mesh.quaternion.copy(_bodyQ).multiply(_localQ).multiply(mesh.userData.localQ);
     }
   }
 }

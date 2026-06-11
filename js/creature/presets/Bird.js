@@ -87,12 +87,13 @@ export function createBird() {
     strips: [new FluidSurface({
       bodyPoint: new Vec3(0, 0.01, 0.20),
       chordDir: new Vec3(0, 0, 1), spanDir: new Vec3(0, 1, 0),
-      chord: 0.12, span: 0.10,
+      chord: 0.14, span: 0.16,
       airfoil: AirfoilData.get('flatplate'),
     })],
   }));
 
   // --- Wings (mirrored helper) ---
+  const twistWiring = [];
   for (const side of [+1, -1]) {
     const sideName = side > 0 ? 'R' : 'L';
 
@@ -130,7 +131,7 @@ export function createBird() {
       limits: { min: -1.2, max: 1.2 },
     }), torso.id, inner.id);
     c.addMuscle(`flap${sideName}`, new Muscle({
-      joint: shoulder, stiffness: 20, damping: 0.9, maxTorque: 10, restAngle: 0,
+      joint: shoulder, stiffness: 35, damping: 1.1, maxTorque: 14, restAngle: 0,
     }), `shoulder${sideName}`);
 
     // Wrist hinge
@@ -164,9 +165,38 @@ export function createBird() {
       // Secondaries + covert tissue mass carried by the arm bone
       inner.addAttachedMass(chord * 0.075 * 0.35, bodyPoint);
     }
-    c.addWing(new Wing({
+    const innerWing = c.addWing(new Wing({
       name: `innerWing${sideName}`, segmentId: inner.id, strips: innerStrips,
     }));
+
+    // Tertials: the strip between wing root and body, carried by the torso.
+    // Fills the lift gap at the root (real birds have no slot there) and puts
+    // a bit of area at the CG, which steadies roll without adding moment arm.
+    c.addWing(new Wing({
+      name: `tertials${sideName}`, segmentId: torso.id,
+      strips: [new FluidSurface({
+        bodyPoint: new Vec3(side * 0.045, 0.025, -0.02),
+        chordDir: new Vec3(0, 0, 1), spanDir: new Vec3(1, 0, 0),
+        chord: 0.115, span: 0.05,
+        airfoil: naca,
+        camberAngle: 0.12,
+      })],
+    }));
+
+    // Alula (bastard wing): small high-AoA device at the wrist's leading
+    // edge. A flat plate keeps generating force past the main wing's stall,
+    // softening stall onset during the high-α phases of a flap cycle.
+    c.addWing(new Wing({
+      name: `alula${sideName}`, segmentId: outer.id,
+      strips: [new FluidSurface({
+        bodyPoint: new Vec3(side * -0.055, 0.004, -0.035),
+        chordDir: new Vec3(0, 0, 1), spanDir: new Vec3(1, 0, 0),
+        chord: 0.035, span: 0.05,
+        airfoil: AirfoilData.get('flatplate'),
+        camberAngle: 0.10,
+      })],
+    }));
+
 
     // Primaries: individual feathers on the hand bone
     const primaries = new FeatherArray({
@@ -189,6 +219,9 @@ export function createBird() {
       const fMass = feather.surface.chord * feather.surface.span * 0.08;
       outer.addAttachedMass(fMass, feather.surface.bodyPoint);
     }
+
+    // Active twist (pronation/supination) wired up after the controller exists
+    twistWiring.push(innerWing, primaries);
   }
 
   // --- Flapping controller ---
@@ -199,30 +232,39 @@ export function createBird() {
   const FLAP_FREQ = 3.0;
   // Hinge sign convention: +rotation about z lifts the RIGHT wing and lowers
   // the LEFT, so the left pattern is amplitude-negated for symmetric flapping.
+  // Amplitude 0.7 rad commands an ~80° stroke envelope — the stiffer shoulder
+  // muscle tracks most of it, landing in a gull's 60–90° stroke range.
+  // restAngle 0.22 sets a visible dihedral: the stroke rides above level, and
+  // the upward-vee makes roll passively self-righting — without it a slow
+  // launch can roll the bird all the way over before the reflex catches it.
   ctrl.setPattern('flapR', {
-    frequency: FLAP_FREQ, amplitude: 0.45, phase: 0, restAngle: 0.18,
+    frequency: FLAP_FREQ, amplitude: 0.7, phase: 0, restAngle: 0.22,
     waveform: 'downbeat',
   });
   ctrl.setPattern('flapL', {
-    frequency: FLAP_FREQ, amplitude: -0.45, phase: 0, restAngle: -0.18,
+    frequency: FLAP_FREQ, amplitude: -0.7, phase: 0, restAngle: -0.22,
     waveform: 'downbeat',
   });
-  // Wrists trail the shoulder by ~70° and fold slightly on the upstroke.
-  // Roll authority lives at the wrists: a common-sign offset folds one hand
-  // up while extending the other (hinge conventions mirror), shifting lift
-  // spanwise — how real birds bank.
+  // Wrists ride the same cycle as the shoulders ('foldup' is keyed to the
+  // downbeat phases): a slight extension whip through the downstroke, then
+  // the hand folds in through the upstroke to cut negative lift — real
+  // recovery-stroke wing folding. Roll stabilization/steering also lives
+  // here: a common-sign offset folds one hand while extending the other
+  // (hinge conventions mirror), shifting lift spanwise — how birds bank.
   ctrl.setPattern('wristR', {
-    frequency: FLAP_FREQ, amplitude: 0.30, phase: -1.2, restAngle: 0.05,
-    waveform: 'sine',
-    rollBias: 0.45,
+    frequency: FLAP_FREQ, amplitude: 0.35, phase: 0, restAngle: 0.05,
+    waveform: 'foldup',
     stabRoll: -0.6,
   });
   ctrl.setPattern('wristL', {
-    frequency: FLAP_FREQ, amplitude: -0.30, phase: -1.2, restAngle: -0.05,
-    waveform: 'sine',
-    rollBias: 0.45,
+    frequency: FLAP_FREQ, amplitude: -0.35, phase: 0, restAngle: -0.05,
+    waveform: 'foldup',
     stabRoll: -0.6,
   });
+  // Pronation/supination through the stroke (see FlappingController.twists).
+  // Gentle servo: a hard AoA clamp over-relieves and dumps the lift the
+  // downstroke is supposed to produce; max 0.25 rad ≈ a gull's measured twist.
+  for (const w of twistWiring) ctrl.addWingTwist(w, { relax: 0.1, max: 0.25 });
   // Tail: pitch control surface. Negative hinge angle = TE up = downward tail force
   // aft of CG = nose-up moment. So all pitch signals must drive toward negative angles.
   ctrl.setPattern('tailMuscle', {

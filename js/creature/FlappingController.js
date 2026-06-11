@@ -28,13 +28,31 @@ export class FlappingController {
     // how strongly it responds (stabRoll/stabPitch/stabYaw).
     this.stabilize = true;
     this.gains = {
-      rollP: 1.8, rollD: 0.45,     // roll angle / roll rate
+      rollP: 2.6, rollD: 0.45,     // roll angle / roll rate
       pitchP: 0.8, pitchD: 0.04,   // pitch attitude / rate (D small: torso ω noisy due to wing reactions)
       yawD: 0.3,                   // yaw rate damping
-      yawToRoll: 1.2,              // banks against a steady heading drift (turn coordinator)
+      yawToRoll: 1.6,              // banks against a steady heading drift (turn coordinator)
       vyDamp: 0.025,               // pitch-setpoint feedback on vertical speed (phugoid damper)
     };
     this.trimPitch = 0.05;         // trim AoA above flight path (rad); wing camber adds ~7° more
+    this.bankCommand = 0.6;        // max commanded bank angle at full stick (rad, ~35°)
+
+    // Low-pass filter on the roll correction. Flapping injects roll-rate
+    // noise at wingbeat frequency; an unfiltered reflex thrashes the wrists
+    // asymmetrically every beat (one hand folds while the other extends — looks
+    // like one wing flapping). The spiral mode it must fight is far slower than
+    // the wingbeat, so a ~1.2 Hz filter keeps stability and kills the thrash.
+    this.rollLpf = 5;              // cutoff (rad/s)
+    this._sRollF = 0;
+
+    // Active wing twist (pronation/supination through the stroke): registered
+    // via addWingTwist(). Each strip's pitchOffset servos to keep its measured
+    // AoA inside the attached range — the leading edge pitches down into the
+    // relative wind on the downstroke (lift stays attached and tilts forward
+    // into thrust) and up on the upstroke (kills negative lift). This is the
+    // wing-twist control real birds use; it's inert in a glide where AoA
+    // already sits in range.
+    this.twists = [];
 
     // Unsteady-lift augmentation (N at full flap). Quasi-steady blade-element
     // theory underestimates flapping force because it ignores the unsteady
@@ -45,6 +63,13 @@ export class FlappingController {
     // genuine climb authority without injecting any roll/yaw asymmetry. This is
     // what lets powered flight climb while a pure glide sinks.
     this.flapBoost = 1.7;
+  }
+
+  // Register active twist for a Wing (BET strips) or a FeatherArray.
+  // aMin/aMax bound the strip AoA (rad); relax is the per-substep correction
+  // fraction; max caps total commanded twist.
+  addWingTwist(wing, { aMin = -0.12, aMax = 0.22, relax = 0.25, max = 0.5 } = {}) {
+    this.twists.push({ feathers: wing.feathers || null, strips: wing.strips || null, aMin, aMax, relax, max });
   }
 
   setPattern(muscleId, pattern) {
@@ -78,6 +103,16 @@ export class FlappingController {
         return t < 0.4
           ? Math.cos(t / 0.4 * Math.PI)          // 1 → −1 fast
           : Math.cos(Math.PI + (t - 0.4) / 0.6 * Math.PI); // −1 → 1 slow
+      }
+      case 'foldup': {
+        // Wrist flexion synchronized with the 'downbeat' cycle: a slight
+        // trailing extension whip through the downstroke (t<0.4), then the
+        // hand folds in through the upstroke — how birds shorten the wing on
+        // recovery to cut negative lift.
+        const t = ((phase / TWO_PI) % 1 + 1) % 1;
+        return t < 0.4
+          ? -0.25 * Math.sin(t / 0.4 * Math.PI)
+          : Math.sin((t - 0.4) / 0.6 * Math.PI);
       }
       default: return Math.sin(phase);
     }
@@ -128,10 +163,19 @@ export class FlappingController {
       // opposing bank instead of accumulating into a spiral. Pilot roll input
       // bypasses this (commanded turns shouldn't be fought).
       const yawCorr = input.rollLeft ? 0 : g.yawToRoll * r;
-      sRoll = clamp(-g.rollP * rollAngle - g.rollD * p - yawCorr, -0.6, 0.6);
+      // Pilot roll input commands a BANK ANGLE through the same reflex that
+      // holds the bird level — not a raw wrist bias fighting that reflex. The
+      // stabilizer tracks any setpoint it can hold at zero, so roll authority
+      // works identically gliding or flapping, with the correct sign by
+      // construction (+rollLeft → +setpoint → right wing up → bank left).
+      const rollSet = this.bankCommand * clamp(input.rollLeft, -1, 1);
+      sRoll = clamp(-g.rollP * (rollAngle - rollSet) - g.rollD * p - yawCorr, -0.6, 0.6);
       sPitch = clamp(-g.pitchP * (aoaProxy - trim) - g.pitchD * q, -0.7, 0.7);
       sYaw = clamp(-g.yawD * r, -0.5, 0.5);
     }
+    // Low-pass on the roll correction (see constructor note)
+    this._sRollF += (sRoll - this._sRollF) * Math.min(1, dt * this.rollLpf);
+    sRoll = this._sRollF;
 
     // Apply the unsteady-lift augmentation at the CG, directed up-and-forward —
     // the true direction of a flapping bird's net force. The vertical part
@@ -184,6 +228,36 @@ export class FlappingController {
       const brakeShift = (input.brake || 0) * 0.4;
 
       muscle.setTargetAngle(pat.restAngle + bias + brakeShift + amp * wave);
+    }
+
+    // Active twist: servo each surface's commanded pitch to keep last
+    // measured AoA attached. Excess above aMax (downstroke) pronates; below
+    // aMin (upstroke) supinates. With no excess the twist relaxes to zero.
+    // Feathers keep their passive rachis pitch; the command stacks on top.
+    const decay = Math.min(1, dt * 8);
+    for (let i = 0; i < this.twists.length; i++) {
+      const tw = this.twists[i];
+      if (tw.strips) {
+        for (let s = 0; s < tw.strips.length; s++) {
+          const strip = tw.strips[s];
+          const a = strip.lastAlpha;
+          const excess = a > tw.aMax ? a - tw.aMax : a < tw.aMin ? a - tw.aMin : 0;
+          let po = strip.pitchOffset;
+          if (excess !== 0) po -= tw.relax * excess;
+          else po -= po * decay;
+          strip.pitchOffset = clamp(po, -tw.max, tw.max);
+        }
+      } else if (tw.feathers) {
+        for (let s = 0; s < tw.feathers.length; s++) {
+          const f = tw.feathers[s];
+          const a = f.surface.lastAlpha;
+          const excess = a > tw.aMax ? a - tw.aMax : a < tw.aMin ? a - tw.aMin : 0;
+          let po = f.controlPitch;
+          if (excess !== 0) po -= tw.relax * excess;
+          else po -= po * decay;
+          f.controlPitch = clamp(po, -tw.max, tw.max);
+        }
+      }
     }
   }
 }
