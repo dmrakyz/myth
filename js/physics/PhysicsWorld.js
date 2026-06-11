@@ -11,7 +11,8 @@ const FIXED_DT = 1 / 240;
 const MAX_SUBSTEPS = 8;
 const MAX_SPEED = 80;       // hard velocity clamp, m/s
 const MAX_OMEGA = 120;      // hard angular velocity clamp, rad/s
-const ROT_DRAG_C = 0.8;     // rotational drag coefficient
+const ROT_DRAG_C = 0.8;     // quadratic rotational drag coefficient
+const ROT_DRAG_LIN = 1.6;   // linear (forward-flight) rotational damping coeff
 const gravityForce = new Vec3();
 
 export class PhysicsWorld {
@@ -127,17 +128,24 @@ export class PhysicsWorld {
       // 8. Rotational fluid damping (implicit — unconditionally stable).
       // Point-strip BET misses the resistance a surface feels rotating about
       // its own axes; without it light bones can spin up unphysically.
-      // Quadratic-drag decay applied directly to angular momentum:
-      //   L ← L / (1 + dt·λ),  λ = C·ρ·r⁵·|ω| / I_mean
+      // Two terms, both decaying angular momentum  L ← L / (1 + dt·λ):
+      //   quadratic (tumbling):       λ_q = C·ρ·r⁵·|ω| / I_mean
+      //   linear (forward flight):    λ_l = C_l·ρ·r⁴·|v| / I_mean
+      // The linear term is the pitch/yaw-rate damping derivative (Cm_q): a
+      // chordwise-distributed surface moving at airspeed v resists rotation
+      // even at small ω. Without it the short-period mode rings undamped —
+      // the visible "glide jitter".
       for (const seg of creature.segments.values()) {
         const body = seg.rigidBody;
         const w = Vec3.len(body.angularVelocity);
         if (w > 1e-6) {
           const rho = this.medium.density(body.position);
           const r = seg.boundingRadius;
+          const v = Vec3.len(body.velocity);
           const e = body.invInertiaWorld.e;
           const invIMean = (e[0] + e[4] + e[8]) / 3;
-          const lambda = ROT_DRAG_C * rho * r * r * r * r * r * w * invIMean;
+          const r4 = r * r * r * r;
+          const lambda = rho * r4 * (ROT_DRAG_C * r * w + ROT_DRAG_LIN * v) * invIMean;
           const decay = 1 / (1 + dt * lambda);
           Vec3.scale(body.angMomentum, decay, body.angMomentum);
           body.updateDerived();

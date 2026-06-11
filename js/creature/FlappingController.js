@@ -29,7 +29,7 @@ export class FlappingController {
     this.stabilize = true;
     this.gains = {
       rollP: 2.6, rollD: 0.45,     // roll angle / roll rate
-      pitchP: 0.8, pitchD: 0.04,   // pitch attitude / rate (D small: torso ω noisy due to wing reactions)
+      pitchP: 0.8, pitchD: 0.45,   // pitch attitude / filtered pitch rate
       yawD: 0.3,                   // yaw rate damping
       yawToRoll: 1.6,              // banks against a steady heading drift (turn coordinator)
       vyDamp: 0.035,               // pitch-setpoint feedback on vertical speed (phugoid damper)
@@ -63,6 +63,14 @@ export class FlappingController {
     // the wingbeat, so a ~1.2 Hz filter keeps stability and kills the thrash.
     this.rollLpf = 5;              // cutoff (rad/s)
     this._sRollF = 0;
+
+    // Low-pass filter on the raw pitch rate q before the D term. Torso ω
+    // carries substep-rate noise from wing joint reactions; an unfiltered D
+    // gain large enough to damp the ~3 Hz short-period mode amplifies that
+    // noise into a visible glide twitch. Filtering at ~8 Hz passes the mode
+    // (so it actually gets damped) while rejecting the solver chatter.
+    this.qLpf = 50;                // cutoff (rad/s)
+    this._qF = 0;
 
     // Active wing twist (pronation/supination through the stroke): registered
     // via addWingTwist(). Each strip's pitchOffset servos to keep its measured
@@ -214,7 +222,8 @@ export class FlappingController {
       const vSide = Vec3.dot(v, rightW);
       sRoll = clamp(-g.rollP * (rollAngle - rollSet) - g.rollD * p - yawCorr
         - g.slipRoll * clamp(vSide, -3, 3), -0.8, 0.8);
-      sPitch = clamp(-g.pitchP * (aoaProxy - trim) - g.pitchD * q, -0.7, 0.7);
+      this._qF += (q - this._qF) * Math.min(1, dt * this.qLpf);
+      sPitch = clamp(-g.pitchP * (aoaProxy - trim) - g.pitchD * this._qF, -0.7, 0.7);
       sYaw = clamp(-g.yawD * r, -0.5, 0.5);
 
       // Active rudder servo (tail twist): yaw-rate damping + weathercock +

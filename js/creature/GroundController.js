@@ -118,9 +118,12 @@ export class GroundController {
       rb.applyForce(legForce, p);
     }
 
-    // ── Upright correction: active on the ground and through low hops, so
-    //    the bird holds attitude during a hop-run takeoff instead of tumbling ─
-    if (this.grounded || (overLand && agl < 1.2 && this.legExtend > 0.3)) {
+    // ── Upright correction: active on the ground and through slow low hops,
+    //    so the bird holds attitude during a hop-run takeoff instead of
+    //    tumbling. Fades out above ~4.5 m/s where the wings have enough
+    //    authority for the flight reflexes to take over (and to pitch up
+    //    and climb away — the assist must not clamp the bird level forever).
+    if (this.grounded || (overLand && agl < 1.2 && this.legExtend > 0.3 && speed < 4.5)) {
       Quat.rotateVec(rb.orientation, UP, upW);
       const w = rb.angularVelocity;
 
