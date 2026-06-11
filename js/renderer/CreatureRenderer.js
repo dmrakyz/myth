@@ -65,24 +65,32 @@ function makeSegmentMesh(seg) {
   return new THREE.Mesh(geo, mat);
 }
 
-function makeStripMesh(strip) {
+function makeStripMesh(strip, wingName = '') {
   const geo = new THREE.PlaneGeometry(strip.chord, strip.span);
+  let baseColor;
+  if (wingName.startsWith('innerWing'))    baseColor = 0x9a8870;
+  else if (wingName.startsWith('tertials')) baseColor = 0x8a7860;
+  else if (wingName.startsWith('alula'))   baseColor = 0xc0ac88;
+  else                                      baseColor = 0xc8b89a;
+  const color = new THREE.Color(baseColor);
   const mat = new THREE.MeshPhongMaterial({
-    color: 0xc8b89a, emissive: 0x100d06,
-    side: THREE.DoubleSide, transparent: true, opacity: 0.60, shininess: 50,
+    color, emissive: color.clone().multiplyScalar(0.05),
+    side: THREE.DoubleSide, transparent: true, opacity: 0.62, shininess: 50,
   });
   const mesh = new THREE.Mesh(geo, mat);
-  // Store the local-frame quaternion (body-local, before body rotation)
   mesh.userData.localQ = quatFromFrame(strip.chordDir, strip.spanDir);
   return mesh;
 }
 
-function makeFeatherMesh(feather) {
+function makeFeatherMesh(feather, index = 0, total = 1) {
   const s = feather.surface;
   const geo = new THREE.PlaneGeometry(s.chord, s.span);
+  // Inner primaries darker/warmer, outer primaries lighter/cooler
+  const t = index / Math.max(total - 1, 1);
+  const color = new THREE.Color(0xc8b890).lerp(new THREE.Color(0xf0ece4), t);
   const mat = new THREE.MeshPhongMaterial({
-    color: 0xddd0b0, emissive: 0x0c0a04,
-    side: THREE.DoubleSide, transparent: true, opacity: 0.82, shininess: 15,
+    color, emissive: color.clone().multiplyScalar(0.04),
+    side: THREE.DoubleSide, transparent: true, opacity: 0.84, shininess: 12,
   });
   const mesh = new THREE.Mesh(geo, mat);
   mesh.userData.localQ = quatFromFrame(s.chordDir, s.spanDir);
@@ -106,6 +114,7 @@ export class CreatureRenderer {
     this.segMeshes.clear();
     this.stripEntries.length = 0;
     this.featherEntries.length = 0;
+    this.attachEntries = [];    // { att, mesh }
     this.creature = creature;
 
     for (const [id, seg] of creature.segments) {
@@ -120,7 +129,7 @@ export class CreatureRenderer {
       // splayed tail's side area at sideslip — neither is a visible surface.
       if (wing.name === 'tailSurface' || wing.name === 'tailFin') continue;
       for (const strip of wing.strips) {
-        const mesh = makeStripMesh(strip);
+        const mesh = makeStripMesh(strip, wing.name);
         mesh.frustumCulled = false;
         this.group.add(mesh);
         this.stripEntries.push({ strip, segId: wing.segmentId, mesh });
@@ -128,12 +137,21 @@ export class CreatureRenderer {
     }
 
     for (const fa of creature.featherArrays.values()) {
-      for (const feather of fa.feathers) {
-        const mesh = makeFeatherMesh(feather);
+      const total = fa.feathers.length;
+      for (let fi = 0; fi < total; fi++) {
+        const feather = fa.feathers[fi];
+        const mesh = makeFeatherMesh(feather, fi, total);
         mesh.frustumCulled = false;
         this.group.add(mesh);
         this.featherEntries.push({ feather, segId: fa.segmentId, mesh });
       }
+    }
+
+    for (const att of creature.visualAttachments ?? []) {
+      const mesh = makeSegmentMesh({ shape: att.shape, dimensions: att.dimensions, color: att.color });
+      mesh.frustumCulled = false;
+      this.group.add(mesh);
+      this.attachEntries.push({ att, mesh });
     }
   }
 
@@ -184,6 +202,17 @@ export class CreatureRenderer {
       _localQ.setFromAxisAngle(_p, s.pitchOffset);
       _bodyQ.set(rb.orientation.x, rb.orientation.y, rb.orientation.z, rb.orientation.w);
       mesh.quaternion.copy(_bodyQ).multiply(_localQ).multiply(mesh.userData.localQ);
+    }
+
+    // Visual attachments: rigid offsets from a parent segment (no physics body)
+    for (const { att, mesh } of this.attachEntries) {
+      const seg = c.segments.get(att.parentSegId);
+      if (!seg) continue;
+      const rb = seg.rigidBody;
+      const lp = att.localPos;
+      const wp = rotByQuat(rb.orientation, lp.x, lp.y, lp.z);
+      mesh.position.set(rb.position.x + wp.x, rb.position.y + wp.y, rb.position.z + wp.z);
+      mesh.quaternion.set(rb.orientation.x, rb.orientation.y, rb.orientation.z, rb.orientation.w);
     }
   }
 }

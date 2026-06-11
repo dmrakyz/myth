@@ -32,7 +32,7 @@ export class FlappingController {
       pitchP: 0.8, pitchD: 0.04,   // pitch attitude / rate (D small: torso ω noisy due to wing reactions)
       yawD: 0.3,                   // yaw rate damping
       yawToRoll: 1.6,              // banks against a steady heading drift (turn coordinator)
-      vyDamp: 0.025,               // pitch-setpoint feedback on vertical speed (phugoid damper)
+      vyDamp: 0.035,                // pitch-setpoint feedback on vertical speed (phugoid damper)
     };
     this.trimPitch = 0.05;         // trim AoA above flight path (rad); wing camber adds ~7° more
     this.bankCommand = 0.6;        // max commanded bank angle at full stick (rad, ~35°)
@@ -63,6 +63,8 @@ export class FlappingController {
     // genuine climb authority without injecting any roll/yaw asymmetry. This is
     // what lets powered flight climb while a pure glide sinks.
     this.flapBoost = 1.7;
+    this.climbRate = 1.0;          // target climb speed for adaptive boost (m/s)
+    this.flapBoostGain = 0.6;      // boost ramps up when vy < climbRate, down when above
   }
 
   // Register active twist for a Wing (BET strips) or a FeatherArray.
@@ -188,7 +190,8 @@ export class FlappingController {
       if (!this.stabilize) Quat.rotateVec(rb.orientation, FWD, fwdW);
       const hx = fwdW.x, hz = fwdW.z;
       const hlen = Math.hypot(hx, hz) || 1;
-      const f = this.flapBoost * flap;
+      const vy = rb.velocity.y;
+      const f = Math.max(0.5, this.flapBoost + this.flapBoostGain * clamp(this.climbRate - vy, -3, 3)) * flap;
       // direction = normalize(worldUp + 0.5·heading); ~63% up, ~37% forward
       let dx = 0.5 * hx / hlen, dy = 1.0, dz = 0.5 * hz / hlen;
       const dl = Math.hypot(dx, dy, dz);

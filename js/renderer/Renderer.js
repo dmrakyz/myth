@@ -44,10 +44,12 @@ export class Renderer {
     // Environment
     this._buildSky();
     this._buildSun();
+    this._buildMountains();
     this._buildClouds();
     this._buildWater();
     this._buildHorizonGrid();
     this._buildStars();
+    this._buildFlock();
 
     // Touch / mouse orbit
     this._touch = { active: false, lastX: 0, lastY: 0, dist: 0 };
@@ -116,17 +118,17 @@ export class Renderer {
     this._sun = sun;
   }
 
-  // ── Drifting cloud billboards ───────────────────────────────────────────────
+  // ── Volumetric cloud formations (3-5 overlapping sprites per cloud) ──────────
   _buildClouds() {
     const c = document.createElement('canvas');
     c.width = c.height = 256;
     const ctx = c.getContext('2d');
-    // Soft lumpy blob from several overlapping radial gradients
     for (let i = 0; i < 14; i++) {
-      const x = 60 + Math.random() * 136, y = 90 + Math.random() * 76;
-      const r = 30 + Math.random() * 50;
+      const x = 55 + Math.random() * 146, y = 85 + Math.random() * 86;
+      const r = 28 + Math.random() * 52;
       const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-      g.addColorStop(0, 'rgba(255,255,255,0.55)');
+      g.addColorStop(0, 'rgba(255,255,255,0.58)');
+      g.addColorStop(0.6, 'rgba(255,255,255,0.18)');
       g.addColorStop(1, 'rgba(255,255,255,0)');
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, 256, 256);
@@ -134,22 +136,34 @@ export class Renderer {
     const tex = new THREE.CanvasTexture(c);
 
     this._clouds = new THREE.Group();
-    const tints = [0xfff0e0, 0xe8d4e8, 0xd8c0d0, 0xffe8d0];
-    for (let i = 0; i < 28; i++) {
-      const mat = new THREE.SpriteMaterial({
-        map: tex, transparent: true, opacity: 0.45 + Math.random() * 0.3,
-        color: tints[i % tints.length], depthWrite: false,
-      });
-      const s = new THREE.Sprite(mat);
-      const scale = 60 + Math.random() * 120;
-      s.scale.set(scale, scale * 0.6, 1);
-      s.position.set(
-        (Math.random() - 0.5) * 1400,
-        70 + Math.random() * 160,
-        (Math.random() - 0.5) * 1400,
-      );
-      s.userData.driftX = 1 + Math.random() * 2;
-      this._clouds.add(s);
+    const tints = [0xfff4e8, 0xf0e0f0, 0xe0d0e8, 0xfff0d8];
+
+    // 13 formations, each built from 3–5 overlapping sprites for a puffier look
+    for (let i = 0; i < 13; i++) {
+      const cx = (Math.random() - 0.5) * 1400;
+      const cz = (Math.random() - 0.5) * 1400;
+      const cy = 80 + Math.random() * 150;
+      const baseScale = 55 + Math.random() * 110;
+      const tint = tints[i % tints.length];
+      const driftX = 0.8 + Math.random() * 1.8;
+      const count = 3 + Math.floor(Math.random() * 3);
+      for (let j = 0; j < count; j++) {
+        const mat = new THREE.SpriteMaterial({
+          map: tex, transparent: true,
+          opacity: 0.30 + Math.random() * 0.28,
+          color: tint, depthWrite: false,
+        });
+        const s = new THREE.Sprite(mat);
+        const sc = baseScale * (0.65 + Math.random() * 0.70);
+        s.scale.set(sc, sc * 0.48, 1);
+        s.position.set(
+          cx + (Math.random() - 0.5) * baseScale * 0.9,
+          cy + (Math.random() - 0.5) * baseScale * 0.18,
+          cz + (Math.random() - 0.5) * baseScale * 0.65,
+        );
+        s.userData.driftX = driftX;
+        this._clouds.add(s);
+      }
     }
     this.scene.add(this._clouds);
   }
@@ -174,7 +188,7 @@ export class Renderer {
         uniform float time;
         varying vec3 vWorld;
         varying vec3 vNormal;
-        // sum of a few Gerstner-ish sine waves for height + analytic normal
+        varying float vHeight;
         float wave(vec2 p, vec2 d, float k, float w, float t, out vec2 deriv) {
           float ph = dot(d, p) * k + t * w;
           deriv = d * k * cos(ph);
@@ -188,6 +202,7 @@ export class Renderer {
           h += 0.30 * wave(p, normalize(vec2(-0.6, 1.0)), 0.031, 1.3, time, dv); dsum += 0.30 * dv;
           h += 0.16 * wave(p, normalize(vec2( 0.8,-0.7)), 0.060, 1.9, time, dv); dsum += 0.16 * dv;
           pos.y += h;
+          vHeight = h;
           vNormal = normalize(vec3(-dsum.x, 1.0, -dsum.y));
           vec4 wp = modelMatrix * vec4(pos, 1.0);
           vWorld = wp.xyz;
@@ -196,6 +211,7 @@ export class Renderer {
       fragmentShader: `
         varying vec3 vWorld;
         varying vec3 vNormal;
+        varying float vHeight;
         uniform vec3 deep; uniform vec3 shallow; uniform vec3 skyTint; uniform vec3 sunDir;
         uniform vec3 fogColor; uniform float fogNear; uniform float fogFar;
         void main() {
@@ -208,6 +224,9 @@ export class Renderer {
           vec3 H = normalize(sunDir + V);
           float spec = pow(max(dot(N, H), 0.0), 120.0);
           col += vec3(1.0, 0.9, 0.7) * spec * 1.4;
+          // foam at wave crests
+          float foam = smoothstep(0.32, 0.68, vHeight);
+          col = mix(col, vec3(0.88, 0.92, 0.95), foam * 0.44);
           float d = length(cameraPosition - vWorld);
           float f = clamp((d - fogNear) / (fogFar - fogNear), 0.0, 1.0);
           col = mix(col, fogColor, f);
@@ -250,6 +269,96 @@ export class Renderer {
     geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
     const mat = new THREE.PointsMaterial({ color: 0xaab4d0, size: 2.0, sizeAttenuation: true, transparent: true, opacity: 0.5, fog: false });
     this.scene.add(new THREE.Points(geo, mat));
+  }
+
+  // ── Distant mountain silhouette ring ──────────────────────────────────────────
+  _buildMountains() {
+    const W = 2048, H = 256;
+    const c = document.createElement('canvas');
+    c.width = W; c.height = H;
+    const ctx = c.getContext('2d');
+    ctx.clearRect(0, 0, W, H);
+
+    // Two overlapping mountain ranges built from summed sines (deterministic, no Math.random)
+    const drawRange = (baseH, r, g, b, a) => {
+      ctx.beginPath();
+      ctx.moveTo(0, H);
+      for (let x = 0; x <= W; x += 3) {
+        const t = x / W;
+        const h = baseH
+          + Math.sin(t * Math.PI *  3.7 + 0.4) * 26
+          + Math.sin(t * Math.PI *  8.1 + 1.1) * 16
+          + Math.sin(t * Math.PI * 17.3 + 0.8) * 10
+          + Math.sin(t * Math.PI * 36.9 + 2.2) *  6;
+        ctx.lineTo(x, H - Math.max(0, h));
+      }
+      ctx.lineTo(W, H);
+      ctx.closePath();
+      ctx.fillStyle = `rgba(${r},${g},${b},${a})`;
+      ctx.fill();
+    };
+
+    drawRange(118,  5,  9, 22, 0.88);  // far range — very dark navy
+    drawRange( 68, 10, 16, 36, 0.92);  // near range — slightly lighter, shorter
+
+    const tex = new THREE.CanvasTexture(c);
+
+    this._mountains = new THREE.Group();
+    for (let i = 0; i < 4; i++) {
+      const angle = i * Math.PI / 2;
+      // Each cardinal plane gets a different horizontal slice of the texture so
+      // not all 4 faces look identical.
+      const mat = new THREE.MeshBasicMaterial({
+        map: tex.clone(), transparent: true, alphaTest: 0.01,
+        side: THREE.DoubleSide, depthWrite: false, fog: false,
+      });
+      mat.map.offset.x = i * 0.25;
+      mat.map.needsUpdate = true;
+      const geo = new THREE.PlaneGeometry(1600, 200);
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(Math.sin(angle) * 700, 78, Math.cos(angle) * 700);
+      mesh.rotation.y = -angle;
+      mesh.frustumCulled = false;
+      this._mountains.add(mesh);
+    }
+    this.scene.add(this._mountains);
+  }
+
+  // ── Distant bird flock silhouette ─────────────────────────────────────────────
+  _buildFlock() {
+    const c = document.createElement('canvas');
+    c.width = 256; c.height = 128;
+    const ctx = c.getContext('2d');
+    ctx.clearRect(0, 0, 256, 128);
+
+    // V-formation of simplified gull silhouettes (M-shapes for spread wings)
+    const birds = [
+      [128, 46],
+      [103, 62], [153, 62],
+      [78, 78],  [153, 78],
+      [54, 94],  [178, 94],
+    ];
+    ctx.fillStyle = 'rgba(12, 15, 32, 0.82)';
+    for (const [bx, by] of birds) {
+      ctx.beginPath();
+      ctx.moveTo(bx - 10, by + 1);
+      ctx.quadraticCurveTo(bx - 6, by - 5, bx,     by + 2);
+      ctx.quadraticCurveTo(bx + 6, by - 5, bx + 10, by + 1);
+      ctx.quadraticCurveTo(bx + 4, by + 4, bx,     by + 2);
+      ctx.quadraticCurveTo(bx - 4, by + 4, bx - 10, by + 1);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    const tex = new THREE.CanvasTexture(c);
+    const mat = new THREE.SpriteMaterial({
+      map: tex, transparent: true, depthWrite: false, fog: false,
+    });
+    const flock = new THREE.Sprite(mat);
+    flock.scale.set(110, 55, 1);
+    flock.position.set(-280, 52, -420);
+    this._flock = flock;
+    this.scene.add(flock);
   }
 
   _bindOrbit() {
@@ -311,6 +420,8 @@ export class Renderer {
     // Clouds + sun follow horizontally so they stay "infinitely" far
     if (this._clouds) { this._clouds.position.x = c.x; this._clouds.position.z = c.z; }
     if (this._sun) { this._sun.position.copy(SUN_DIR).multiplyScalar(1600).add(new THREE.Vector3(c.x, 0, c.z)); }
+    if (this._mountains) { this._mountains.position.x = c.x; this._mountains.position.z = c.z; }
+    if (this._flock) { this._flock.position.set(c.x - 280, 52, c.z - 420); }
 
     const d = this._orbitDist;
     const py = this._orbitPitch;

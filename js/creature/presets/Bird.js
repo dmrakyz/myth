@@ -275,5 +275,23 @@ export function createBird() {
   });
   c.flappingController = ctrl;
 
+  // --- Visual anatomy (beak, eyes, legs) ---
+  // Purely visual decorations — no separate rigid bodies or joints to avoid
+  // overloading the sequential-impulse solver with fixed joints on tiny masses.
+  // Mass contributions are folded into the parent's inertia via addAttachedMass.
+  head.addAttachedMass(0.003, new Vec3(0, -0.006, -0.065));      // beak
+  head.addAttachedMass(0.001, new Vec3( 0.024, 0.003, -0.010));  // eyeR
+  head.addAttachedMass(0.001, new Vec3(-0.024, 0.003, -0.010));  // eyeL
+  torso.addAttachedMass(0.008, new Vec3( 0.028, -0.073, 0.015)); // legR
+  torso.addAttachedMass(0.008, new Vec3(-0.028, -0.073, 0.015)); // legL
+
+  c.visualAttachments = [
+    { parentSegId: head.id,  localPos: new Vec3(0,       -0.006, -0.065), shape: 'ellipsoid', dimensions: [0.007, 0.006, 0.026], color: 0xd4a830 },
+    { parentSegId: head.id,  localPos: new Vec3( 0.024,   0.003, -0.010), shape: 'ellipsoid', dimensions: [0.007, 0.007, 0.005], color: 0x181010 },
+    { parentSegId: head.id,  localPos: new Vec3(-0.024,   0.003, -0.010), shape: 'ellipsoid', dimensions: [0.007, 0.007, 0.005], color: 0x181010 },
+    { parentSegId: torso.id, localPos: new Vec3( 0.028,  -0.073, 0.015),  shape: 'ellipsoid', dimensions: [0.012, 0.025, 0.012], color: 0xd09040 },
+    { parentSegId: torso.id, localPos: new Vec3(-0.028,  -0.073, 0.015),  shape: 'ellipsoid', dimensions: [0.012, 0.025, 0.012], color: 0xd09040 },
+  ];
+
   return c;
 }
