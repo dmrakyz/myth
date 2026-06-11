@@ -137,7 +137,7 @@ export function createBird() {
       limits: { min: -1.2, max: 1.2 },
     }), torso.id, inner.id);
     c.addMuscle(`flap${sideName}`, new Muscle({
-      joint: shoulder, stiffness: 35, damping: 1.1, maxTorque: 2.6, restAngle: 0,
+      joint: shoulder, stiffness: 35, damping: 1.1, maxTorque: 5, restAngle: 0,
     }), `shoulder${sideName}`);
 
     // Wrist hinge
@@ -150,7 +150,7 @@ export function createBird() {
       limits: { min: -0.9, max: 0.9 },
     }), inner.id, outer.id);
     c.addMuscle(`wrist${sideName}`, new Muscle({
-      joint: wrist, stiffness: 6, damping: 0.8, maxTorque: 1.7, restAngle: 0,
+      joint: wrist, stiffness: 6, damping: 0.8, maxTorque: 2, restAngle: 0,
     }), `wrist${sideName}`);
 
     // Secondaries: cambered BET strips on the inner bone. Strip frames are
@@ -264,7 +264,7 @@ export function createBird() {
   // Medium/large-bird wingbeat: strong and slow (~3 Hz at full power, like a
   // gull or crow). Low frequency + larger amplitude reads as a real flap and
   // lets the overdamped muscle reach a wide stroke instead of a fast buzz.
-  const FLAP_FREQ = 3.0;
+  const FLAP_FREQ = 3.0;   // gull wingbeat
   // Hinge sign convention: +rotation about z lifts the RIGHT wing and lowers
   // the LEFT, so the left pattern is amplitude-negated for symmetric flapping.
   // Amplitude 0.7 rad commands an ~80° stroke envelope — the stiffer shoulder
@@ -276,11 +276,11 @@ export function createBird() {
   // lowers the other (hinges mirror), shifting the lift vector — far more roll
   // torque than the wrist fold alone, which saturates in a big departure.
   ctrl.setPattern('flapR', {
-    frequency: FLAP_FREQ, amplitude: 0.7, phase: 0, restAngle: 0.22,
+    frequency: FLAP_FREQ, amplitude: 1.0, phase: 0, restAngle: 0.22,
     waveform: 'downbeat', stabRoll: -0.40, tuckAngle: 0.30,
   });
   ctrl.setPattern('flapL', {
-    frequency: FLAP_FREQ, amplitude: -0.7, phase: 0, restAngle: -0.22,
+    frequency: FLAP_FREQ, amplitude: -1.0, phase: 0, restAngle: -0.22,
     waveform: 'downbeat', stabRoll: -0.40, tuckAngle: -0.30,
   });
   // Wrists ride the same cycle as the shoulders ('foldup' is keyed to the
@@ -300,9 +300,12 @@ export function createBird() {
     stabRoll: -1.0, tuckAngle: 0.85,
   });
   // Pronation/supination through the stroke (see FlappingController.twists).
-  // Gentle servo: a hard AoA clamp over-relieves and dumps the lift the
-  // downstroke is supposed to produce; max 0.25 rad ≈ a gull's measured twist.
-  for (const w of twistWiring) ctrl.addWingTwist(w, { relax: 0.1, max: 0.25 });
+  // Big-stroke flapping demands big twist: the hand sections see the wind
+  // tilt 30-45 deg at mid-downstroke, so the servo gets gull-scale authority
+  // (0.6 rad), fast tracking (relax 0.7), and a positive AoA hold band
+  // (aHold) so the upstroke carries weight instead of pushing down.
+  for (const w of twistWiring) ctrl.addWingTwist(w, { relax: 0.7, max: 0.6, aHold: 0.03 });
+  ctrl.twistDecay = 100;
   // Tail: pitch control surface. Negative hinge angle = TE up = downward tail force
   // aft of CG = nose-up moment. So all pitch signals must drive toward negative angles.
   ctrl.setPattern('tailMuscle', {

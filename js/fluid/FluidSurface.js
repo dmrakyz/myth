@@ -8,6 +8,18 @@ import { lerp } from '../math/MathUtils.js';
 // airfoil profile and geometry differ. Works in any fluid medium (air/water)
 // because density and flow are queried per-strip per-substep.
 //
+// The section model is SEMI-UNSTEADY, not quasi-steady: on top of the table
+// coefficients it carries
+//   • added-mass reaction      — the inertia of the fluid the chord drags
+//     with it, m_a = ρ·π·(c/2)²·span, opposing normal acceleration
+//   • rotational (Kramer) lift — ΔCl = π·α̇·c/(2V) from pitch rate
+//   • circulatory lag          — Wagner-style first-order buildup of bound
+//     circulation (½ instantaneous + ½ lagged over ~2 chord lengths)
+//   • stall hysteresis         — separation fast, reattachment slow, with
+//     both onset and recovery scaled by how unsteady the local flow is
+// These are the leading-order terms a flapping wing lives on; without them
+// big-amplitude strokes produce drag instead of lift.
+//
 // Geometry (parent body frame):
 //   bodyPoint — strip aerodynamic center
 //   chordDir  — unit chord direction (leading edge → trailing edge)
@@ -51,13 +63,20 @@ export class FluidSurface {
     // induce downwash that reduces the effective lift slope to ~AR/(AR+2).
     this.clScale = 1;
 
-    // Unsteady-lift gain: quasi-steady BET underestimates the force on a
-    // rapidly plunging strip — the leading-edge vortex, rotational (Kramer)
-    // lift and added-mass reaction together roughly double peak downstroke
-    // force. Cl is scaled by (1 + gain·u) where u is the fraction of the
-    // apparent wind contributed by the strip's own motion (u ≈ 0 in a glide,
-    // so this is inert outside flapping). Set on wing strips by presets.
+    // Leading-edge-vortex gain: delayed stall on a rapidly plunging strip
+    // raises attainable lift beyond the static table. Cl is scaled by
+    // (1 + gain·u) where u is the fraction of the apparent wind contributed
+    // by the strip's own motion (u ≈ 0 in a glide, so this is inert outside
+    // flapping). Added mass and rotational lift are modeled explicitly below
+    // and are NOT part of this gain. Set on wing strips by presets.
     this.unsteadyGain = 0;
+
+    // Semi-unsteady state (per strip, persists across substeps)
+    this._vnPrev = 0;       // fluid-relative normal velocity (added mass)
+    this._alphaPrev = 0;    // previous α (rotational lift)
+    this._alphaDotF = 0;    // low-passed α̇
+    this._clLag = 0;        // lagged circulatory lift (Wagner buildup)
+    this._hasPrev = false;  // history valid (false after rest / first call)
 
     // Runtime-controllable extra pitch about span axis (feather rachis
     // rotation, wing twist control). Applied in addition to camberAngle.
@@ -78,8 +97,8 @@ export class FluidSurface {
   }
 
   // Compute and apply aerodynamic force on parentBody. Returns |force|.
-  // dt is needed for the stability force limiter.
-  computeForce(parentBody, medium, dt) {
+  // dt drives the unsteady terms and the stability force limiter.
+  computeForce(parentBody, medium, dt = 1 / 240) {
     parentBody.localToWorld(this.bodyPoint, worldPoint);
 
     // Resolve strip frame to world
@@ -117,6 +136,8 @@ export class FluidSurface {
       Vec3.zero(this.lastForce);
       this.lastAlpha = 0;
       this.lastLoad = 0;
+      this._hasPrev = false;   // history is stale after a rest
+      this._clLag = 0;
       return 0;
     }
 
@@ -149,8 +170,21 @@ export class FluidSurface {
     Vec3.cross(parentBody.angularVelocity, tmp, tmp);
     const u = Math.min(1, Vec3.len(tmp) / (vMag + 0.1));
 
-    let Cl = this.clScale * this.airfoil.Cl(alpha);
-    // Unsteady augmentation (LEV / rotational lift / added mass): see field
+    // ── Rotational (Kramer) lift: pitch rate adds circulation ────────────
+    // ΔCl = π·α̇·c/(2V). α̇ from a wrapped finite difference, low-passed at
+    // ~100 rad/s to reject substep noise. This is what lets a pronating
+    // downstroke carry lift through rapid twist, and it damps pitch flutter.
+    let dAlpha = alpha - this._alphaPrev;
+    if (dAlpha > Math.PI) dAlpha -= 2 * Math.PI;
+    else if (dAlpha < -Math.PI) dAlpha += 2 * Math.PI;
+    const alphaDotRaw = this._hasPrev ? dAlpha / dt : 0;
+    this._alphaDotF += (alphaDotRaw - this._alphaDotF) * Math.min(1, dt * 100);
+    this._alphaPrev = alpha;
+    const clRot = Math.PI * this._alphaDotF * this.chord / (2 * vMag);
+
+    let Cl = this.clScale * this.airfoil.Cl(alpha)
+      + Math.max(-0.6, Math.min(0.6, clRot));
+    // Leading-edge-vortex augmentation on plunge-dominated flow: see field
     if (this.unsteadyGain > 0) Cl *= 1 + this.unsteadyGain * u;
     let Cd = this.airfoil.Cd(alpha) + this.inducedDragK * Cl * Cl;
 
@@ -158,12 +192,13 @@ export class FluidSurface {
     // α beyond the table's attached range separates the boundary layer in
     // ~40 ms. Dropping the nose does NOT instantly restore clean flow: the
     // strip stays on degraded post-stall coefficients until α falls below
-    // ~70% of the stall angle, then reattaches over ~0.35 s. Exception: when
-    // the apparent wind is dominated by the strip's own motion (flapping),
-    // the leading-edge vortex of dynamic stall keeps flow effectively
-    // attached at angles far past static stall — so unsteadiness suppresses
-    // separation onset. Profiles tabulated over the full ±180° (blunt
-    // bodies) never leave their range and skip all of this.
+    // ~70% of the stall angle, then reattaches over ~0.35 s. BOTH onset and
+    // recovery scale with unsteadiness u: the leading-edge vortex of dynamic
+    // stall keeps plunging flow effectively attached past static stall, and
+    // the flow state resets at every stroke reversal rather than carrying a
+    // steady-flow reattachment delay through the flap cycle. Profiles
+    // tabulated over the full ±180° (blunt bodies) never leave their range
+    // and skip all of this.
     const aMaxT = this.airfoil.alphaMax, aMinT = this.airfoil.alphaMin;
     const beyond = alpha > aMaxT || alpha < aMinT;
     if (beyond || this.stallState > 0) {
@@ -171,7 +206,7 @@ export class FluidSurface {
         const grow = Math.max(0, 1 - 1.6 * u);
         this.stallState = Math.min(1, this.stallState + (dt / 0.04) * grow);
       } else if (alpha < aMaxT * 0.7 && alpha > aMinT * 0.7) {
-        this.stallState = Math.max(0, this.stallState - dt / 0.35);
+        this.stallState = Math.max(0, this.stallState - (dt / 0.35) * (1 + 10 * u));
       }
       if (this.stallState > 0) {
         const sepCl = AirfoilData.flatPlateCl(alpha);
@@ -180,6 +215,15 @@ export class FluidSurface {
         Cd = lerp(Cd, sepCd, this.stallState);
       }
     }
+
+    // ── Circulatory lag (Wagner): bound circulation can't jump ───────────
+    // A step change in α reaches ~½ of its final lift instantly, the rest
+    // builds as the wing travels ~2 chord lengths. Modeled as ½ direct +
+    // ½ first-order lag with τ = 2c/V. Also smooths substep Cl flicker.
+    const tauW = 2 * this.chord / vMag;
+    this._clLag += (Cl - this._clLag) * Math.min(1, dt / Math.max(tauW, dt));
+    if (!this._hasPrev) this._clLag = Cl;
+    Cl = 0.5 * Cl + 0.5 * this._clLag;
 
     // Drag along the apparent wind w = -vPerp; lift = ŵ × span, which lies
     // in the chord-normal plane perpendicular to the flow. The sign works out
@@ -194,6 +238,21 @@ export class FluidSurface {
 
     Vec3.scale(liftDir, L, force);
     Vec3.addScaled(force, dragDir, D, force);
+
+    // ── Added mass: the fluid's own inertia ──────────────────────────────
+    // A chord accelerating normal to itself drags a cylinder of fluid with
+    // it, m_a = ρ·π·(c/2)²·span. The reaction opposes normal acceleration —
+    // it loads the downstroke, gives free force back at stroke reversal,
+    // and resists the rapid normal accelerations of pitch flutter.
+    const vN = Vec3.dot(vel, normalW);
+    if (this._hasPrev) {
+      let aN = (vN - this._vnPrev) / dt;
+      if (aN > 400) aN = 400; else if (aN < -400) aN = -400;
+      const mA = rho * Math.PI * 0.25 * this.chord * this.chord * this.span;
+      Vec3.addScaled(force, normalW, -mA * aN, force);
+    }
+    this._vnPrev = vN;
+    this._hasPrev = true;
 
     // Aeroelastic-relief limiter: prevents explicit-integration divergence
     // on very light parts (see ForceLimiter.js)

@@ -49,13 +49,20 @@ export class Feather {
     const Fn = Vec3.dot(this.surface.lastForce, normalW);
     const tauAero = -Fn * this.surface.chord * 0.25;
 
-    // Quasi-static equilibrium with relaxation (feather relaxes toward
-    // k·(θ−θ₀) = τ_aero over ~8 ms — fast but smooth)
-    const target = clamp(
-      this.restTwist + tauAero / this.k,
-      this.restTwist - this.maxTwist,
-      this.restTwist + this.maxTwist,
-    );
+    // Vane interlock (venetian-blind asymmetry): on the downstroke each
+    // primary is pressed against its neighbor and the hand wing forms a
+    // closed surface — the rachis CANNOT twist to relieve lift-side load.
+    // Negative (upstroke) loading twists the vane open freely and spills
+    // the air. This asymmetry is why a real downstroke lifts at full force
+    // while the upstroke is cheap; symmetric relief bleeds off most of the
+    // primaries' lift and leaves the arm wing carrying the bird.
+    const target = Fn > 0
+      ? this.restTwist
+      : clamp(
+          this.restTwist + tauAero / this.k,
+          this.restTwist - this.maxTwist,
+          this.restTwist + this.maxTwist,
+        );
     const lambda = Math.min(1, dt / 0.008);
     this.pitch += lambda * (target - this.pitch);
     this.surface.pitchOffset = this.pitch + this.controlPitch;

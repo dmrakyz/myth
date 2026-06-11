@@ -86,6 +86,11 @@ export class FlappingController {
     // wing-twist control real birds use; it's inert in a glide where AoA
     // already sits in range.
     this.twists = [];
+    // Twist relax-back rate (1/s). Must be fast relative to the stroke: a
+    // slow decay leaves reversal pronation in place through the whole
+    // downstroke, flying the wing at far-below-trim AoA exactly when it
+    // should be lifting.
+    this.twistDecay = 8;
 
     // Residual cycle-averaged climb assist (N at full flap). The unsteady
     // flapping force itself now lives on the strips (FluidSurface
@@ -94,9 +99,9 @@ export class FlappingController {
     // and direction. This small CG term only covers the cycle-averaged
     // wake-capture effect the strip model can't see, and trims the climb
     // rate; it is a fraction of its former value.
-    this.flapBoost = 1.0;
+    this.flapBoost = 1.35;
     this.climbRate = 1.0;          // target climb speed for adaptive assist (m/s)
-    this.flapBoostGain = 0.5;      // assist ramps up when vy < climbRate, down when above
+    this.flapBoostGain = 0.6;      // assist ramps up when vy < climbRate, down when above
   }
 
   // Register active twist for a Wing (BET strips) or a FeatherArray.
@@ -110,8 +115,8 @@ export class FlappingController {
     this.tailFan = { strip, baseSpan: strip.span, gain };
   }
 
-  addWingTwist(wing, { aMin = -0.12, aMax = 0.22, relax = 0.25, max = 0.5 } = {}) {
-    this.twists.push({ feathers: wing.feathers || null, strips: wing.strips || null, aMin, aMax, relax, max });
+  addWingTwist(wing, { aMin = -0.12, aMax = 0.22, relax = 0.25, max = 0.5, aHold = null } = {}) {
+    this.twists.push({ feathers: wing.feathers || null, strips: wing.strips || null, aMin, aMax, relax, max, aHold });
   }
 
   setPattern(muscleId, pattern) {
@@ -312,18 +317,22 @@ export class FlappingController {
       muscle.setTargetAngle(target);
     }
 
-    // Active twist: servo each surface's commanded pitch to keep last
-    // measured AoA attached. Excess above aMax (downstroke) pronates; below
-    // aMin (upstroke) supinates. With no excess the twist relaxes to zero.
-    // Feathers keep their passive rachis pitch; the command stacks on top.
-    const decay = Math.min(1, dt * 8);
+    // Active twist: servo each surface's commanded pitch toward a working
+    // AoA band. In a glide the band is [aMin, aMax] and the servo only
+    // relieves stall — it is inert at cruise AoA. While flapping the lower
+    // bound rises to aHold (positive): the wing is pitched INTO the relative
+    // wind on the upstroke instead of riding at negative AoA, so the
+    // recovery stroke keeps carrying weight — the pronation/supination cycle
+    // real birds fly through the whole stroke, not just stall relief.
+    const decay = Math.min(1, dt * this.twistDecay);
     for (let i = 0; i < this.twists.length; i++) {
       const tw = this.twists[i];
+      const lowBound = flap > 0.3 ? (tw.aHold ?? tw.aMin) : tw.aMin;
       if (tw.strips) {
         for (let s = 0; s < tw.strips.length; s++) {
           const strip = tw.strips[s];
           const a = strip.lastAlpha;
-          const excess = a > tw.aMax ? a - tw.aMax : a < tw.aMin ? a - tw.aMin : 0;
+          const excess = a > tw.aMax ? a - tw.aMax : a < lowBound ? a - lowBound : 0;
           let po = strip.pitchOffset;
           if (excess !== 0) po -= tw.relax * excess;
           else po -= po * decay;
@@ -333,7 +342,7 @@ export class FlappingController {
         for (let s = 0; s < tw.feathers.length; s++) {
           const f = tw.feathers[s];
           const a = f.surface.lastAlpha;
-          const excess = a > tw.aMax ? a - tw.aMax : a < tw.aMin ? a - tw.aMin : 0;
+          const excess = a > tw.aMax ? a - tw.aMax : a < lowBound ? a - lowBound : 0;
           let po = f.controlPitch;
           if (excess !== 0) po -= tw.relax * excess;
           else po -= po * decay;

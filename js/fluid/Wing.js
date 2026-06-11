@@ -17,15 +17,27 @@ export function applyPlanform(surfaces, { span, area, e = 0.85, stations = null,
   const AR = (span * span / Math.max(area, 1e-9)) * carryover;
   const k = 1 / (Math.PI * e * AR);
   const slope3D = AR / (AR + 2);
+  // Tip loss REDISTRIBUTES lift toward the root — the planform's mean
+  // downwash penalty is already in slope3D, so the spanwise factor is
+  // normalized to an area-weighted mean of 1 (otherwise the 3D penalty is
+  // double-counted and the whole wing under-lifts).
+  let tipF = null;
+  if (stations) {
+    tipF = new Array(surfaces.length);
+    let wSum = 0, fSum = 0;
+    for (let i = 0; i < surfaces.length; i++) {
+      const st = Math.min(1, Math.abs(stations[i]));
+      tipF[i] = Math.sqrt(Math.max(0, 1 - st ** 6));
+      const a = surfaces[i].chord * surfaces[i].span;
+      wSum += a; fSum += a * tipF[i];
+    }
+    const mean = fSum / Math.max(wSum, 1e-9);
+    for (let i = 0; i < surfaces.length; i++) tipF[i] /= mean;
+  }
   for (let i = 0; i < surfaces.length; i++) {
     const s = surfaces[i];
     s.inducedDragK = k;
-    let tip = 1;
-    if (stations) {
-      const st = Math.min(1, Math.abs(stations[i]));
-      tip = Math.sqrt(Math.max(0, 1 - st ** 6));
-    }
-    s.clScale = slope3D * tip;
+    s.clScale = slope3D * (tipF ? tipF[i] : 1);
   }
   return AR;
 }
