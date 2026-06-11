@@ -32,10 +32,17 @@ export class FlappingController {
       pitchP: 0.8, pitchD: 0.04,   // pitch attitude / rate (D small: torso ω noisy due to wing reactions)
       yawD: 0.3,                   // yaw rate damping
       yawToRoll: 1.6,              // banks against a steady heading drift (turn coordinator)
-      vyDamp: 0.035,                // pitch-setpoint feedback on vertical speed (phugoid damper)
+      vyDamp: 0.035,               // pitch-setpoint feedback on vertical speed (phugoid damper)
+      slipRoll: 0,                 // sideslip velocity → roll correction (tuned per preset)
     };
     this.trimPitch = 0.05;         // trim AoA above flight path (rad); wing camber adds ~7° more
     this.bankCommand = 0.6;        // max commanded bank angle at full stick (rad, ~35°)
+
+    // Active rudder: a vertical tail surface whose deflection about its
+    // vertical span axis is servo-driven — yaw-rate damping plus sideslip
+    // weathercocking far stronger than the passive fin, and direct yaw-stick
+    // authority. Real birds do this by twisting the spread tail. setRudder().
+    this.rudder = null;            // { strip, yawGain, slipGain, cmdGain, max }
 
     // Low-pass filter on the roll correction. Flapping injects roll-rate
     // noise at wingbeat frequency; an unfiltered reflex thrashes the wrists
@@ -70,6 +77,10 @@ export class FlappingController {
   // Register active twist for a Wing (BET strips) or a FeatherArray.
   // aMin/aMax bound the strip AoA (rad); relax is the per-substep correction
   // fraction; max caps total commanded twist.
+  setRudder(strip, { yawGain = 0, slipGain = 0, cmdGain = 0, max = 0.45 } = {}) {
+    this.rudder = { strip, yawGain, slipGain, cmdGain, max };
+  }
+
   addWingTwist(wing, { aMin = -0.12, aMax = 0.22, relax = 0.25, max = 0.5 } = {}) {
     this.twists.push({ feathers: wing.feathers || null, strips: wing.strips || null, aMin, aMax, relax, max });
   }
@@ -171,9 +182,26 @@ export class FlappingController {
       // works identically gliding or flapping, with the correct sign by
       // construction (+rollLeft → +setpoint → right wing up → bank left).
       const rollSet = this.bankCommand * clamp(input.rollLeft, -1, 1);
-      sRoll = clamp(-g.rollP * (rollAngle - rollSet) - g.rollD * p - yawCorr, -0.6, 0.6);
+      // Sideslip: lateral airspeed in the body frame. The spiral mode starts
+      // as a slow slip that dihedral converts into roll; sensing it directly
+      // (like a bird's flow-sensing feathers) catches the departure before
+      // the bank builds up.
+      const vSide = Vec3.dot(v, rightW);
+      sRoll = clamp(-g.rollP * (rollAngle - rollSet) - g.rollD * p - yawCorr
+        - g.slipRoll * clamp(vSide, -3, 3), -0.8, 0.8);
       sPitch = clamp(-g.pitchP * (aoaProxy - trim) - g.pitchD * q, -0.7, 0.7);
       sYaw = clamp(-g.yawD * r, -0.5, 0.5);
+
+      // Active rudder servo (tail twist): yaw-rate damping + weathercock +
+      // pilot yaw command, written straight onto the fin strip's pitchOffset.
+      if (this.rudder) {
+        const rd = this.rudder;
+        rd.strip.pitchOffset = clamp(
+          rd.yawGain * r + rd.slipGain * clamp(vSide, -4, 4)
+            + rd.cmdGain * clamp(input.yawLeft, -1, 1),
+          -rd.max, rd.max,
+        );
+      }
     }
     // Low-pass on the roll correction (see constructor note)
     this._sRollF += (sRoll - this._sRollF) * Math.min(1, dt * this.rollLpf);

@@ -81,15 +81,17 @@ export function createBird() {
   }));
   // Vertical fin equivalent: a splayed bird tail presents side area at
   // sideslip. Without a weathercock surface sideslip grows unchecked and
-  // couples through wing dihedral into spiral divergence.
+  // couples through wing dihedral into spiral divergence. The strip is also
+  // the active rudder (tail twist) — registered with the controller below.
+  const tailFinStrip = new FluidSurface({
+    bodyPoint: new Vec3(0, 0.01, 0.20),
+    chordDir: new Vec3(0, 0, 1), spanDir: new Vec3(0, 1, 0),
+    chord: 0.14, span: 0.16,
+    airfoil: AirfoilData.get('flatplate'),
+  });
   c.addWing(new Wing({
     name: 'tailFin', segmentId: torso.id,
-    strips: [new FluidSurface({
-      bodyPoint: new Vec3(0, 0.01, 0.20),
-      chordDir: new Vec3(0, 0, 1), spanDir: new Vec3(0, 1, 0),
-      chord: 0.14, span: 0.16,
-      airfoil: AirfoilData.get('flatplate'),
-    })],
+    strips: [tailFinStrip],
   }));
 
   // --- Wings (mirrored helper) ---
@@ -237,13 +239,16 @@ export function createBird() {
   // restAngle 0.22 sets a visible dihedral: the stroke rides above level, and
   // the upward-vee makes roll passively self-righting — without it a slow
   // launch can roll the bird all the way over before the reflex catches it.
+  // stabRoll on the shoulders: a common-sign offset raises one wing root and
+  // lowers the other (hinges mirror), shifting the lift vector — far more roll
+  // torque than the wrist fold alone, which saturates in a big departure.
   ctrl.setPattern('flapR', {
     frequency: FLAP_FREQ, amplitude: 0.7, phase: 0, restAngle: 0.22,
-    waveform: 'downbeat',
+    waveform: 'downbeat', stabRoll: -0.25,
   });
   ctrl.setPattern('flapL', {
     frequency: FLAP_FREQ, amplitude: -0.7, phase: 0, restAngle: -0.22,
-    waveform: 'downbeat',
+    waveform: 'downbeat', stabRoll: -0.25,
   });
   // Wrists ride the same cycle as the shoulders ('foldup' is keyed to the
   // downbeat phases): a slight extension whip through the downstroke, then
@@ -273,6 +278,9 @@ export function createBird() {
     flapScale: 0,
     stabPitch: -1.5,
   });
+  // Active rudder (tail twist): yaw-rate damping + sideslip weathercock +
+  // yaw-stick authority on the vertical fin strip.
+  ctrl.setRudder(tailFinStrip, { yawGain: 0.5, slipGain: 0.04, cmdGain: 0.3, max: 0.4 });
   c.flappingController = ctrl;
 
   // --- Visual anatomy (beak, eyes, legs) ---
