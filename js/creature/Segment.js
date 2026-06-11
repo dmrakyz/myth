@@ -69,6 +69,27 @@ export class Segment {
       case 'plate': this.contactRadius = 0.005; break;
       default: this.contactRadius = this.boundingRadius;
     }
+
+    // Ground-contact sample points: center plus the tips of elongated axes,
+    // so wing-bone tips and tail edges collide with terrain instead of
+    // sweeping through it (the center-only test let wingtips clip in dives).
+    let hx, hy, hz;
+    switch (this.shape) {
+      case 'ellipsoid': case 'box': hx = d[0]; hy = d[1]; hz = d[2]; break;
+      case 'capsule':   hx = d[0]; hy = d[0]; hz = d[0] + d[1]; break;
+      case 'plate':     hx = d[1] * 0.5; hy = 0.005; hz = d[0] * 0.5; break;
+      default:          hx = hy = hz = this.boundingRadius;
+    }
+    this.contactPoints = [{ p: new Vec3(0, 0, 0), r: this.contactRadius }];
+    const tipR = Math.max(0.006, Math.min(hy, this.contactRadius));
+    if (hx > 3 * this.contactRadius) {
+      this.contactPoints.push({ p: new Vec3( hx * 0.95, 0, 0), r: tipR });
+      this.contactPoints.push({ p: new Vec3(-hx * 0.95, 0, 0), r: tipR });
+    }
+    if (hz > 3 * this.contactRadius) {
+      this.contactPoints.push({ p: new Vec3(0, 0,  hz * 0.95), r: tipR });
+      this.contactPoints.push({ p: new Vec3(0, 0, -hz * 0.95), r: tipR });
+    }
     inertiaForShape(this.shape, d, this.baseMass, this._inertia);
 
     // Parallel-axis contributions from attached point masses

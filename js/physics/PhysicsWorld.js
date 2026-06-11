@@ -14,6 +14,8 @@ const MAX_OMEGA = 120;      // hard angular velocity clamp, rad/s
 const ROT_DRAG_C = 0.8;     // quadratic rotational drag coefficient
 const ROT_DRAG_LIN = 1.6;   // linear (forward-flight) rotational damping coeff
 const gravityForce = new Vec3();
+const contactW = new Vec3(), contactV = new Vec3(), contactR = new Vec3();
+const ct1 = new Vec3(), ct2 = new Vec3(), contactImp = new Vec3();
 
 export class PhysicsWorld {
   constructor({ waterSurface, fluidMedium, terrain = null }) {
@@ -167,16 +169,44 @@ export class PhysicsWorld {
           Vec3.scale(body.angMomentum, s, body.angMomentum);
           body.updateDerived();
         }
-        // Ground contact: terrain heightfield (or flat sea floor). Position
-        // projection + inelastic bounce + tangential friction decay — simple,
-        // unconditionally stable, and enough for standing/walking.
-        const cr = seg.contactRadius ?? seg.boundingRadius;
-        const gh = this.terrain
-          ? this.terrain.height(body.position.x, body.position.z)
-          : this.groundY;
-        if (body.position.y < gh + cr) {
-          body.position.y = gh + cr;
-          if (body.linMomentum.y < 0) body.linMomentum.y *= -0.2;
+        // Ground contact: terrain heightfield (or flat sea floor), sampled at
+        // the segment's contact points (center + tips of elongated axes).
+        // Per-point inelastic normal impulses mean an off-centre strike —
+        // a wingtip catching the ground in a dive — pitches/rolls the body
+        // like a real wingtip strike instead of silently clipping through.
+        // Position projection by the deepest penetration keeps it stable.
+        const pts = seg.contactPoints;
+        let maxPen = 0, touching = false;
+        for (let pi = 0; pi < pts.length; pi++) {
+          const cp = pts[pi];
+          body.localToWorld(cp.p, contactW);
+          const gh = this.terrain
+            ? this.terrain.height(contactW.x, contactW.z)
+            : this.groundY;
+          const pen = gh + cp.r - contactW.y;
+          if (pen <= 0) continue;
+          touching = true;
+          if (pen > maxPen) maxPen = pen;
+          body.pointVelocity(contactW, contactV);
+          if (contactV.y < 0) {
+            // Effective mass at the point along world up:
+            //   1/k = 1/m + ŷ·((I⁻¹(r×ŷ))×r)
+            Vec3.sub(contactW, body.position, contactR);
+            ct1.set(-contactR.z, 0, contactR.x);        // r × ŷ
+            const e = body.invInertiaWorld.e;
+            ct2.x = e[0] * ct1.x + e[1] * ct1.y + e[2] * ct1.z;
+            ct2.y = e[3] * ct1.x + e[4] * ct1.y + e[5] * ct1.z;
+            ct2.z = e[6] * ct1.x + e[7] * ct1.y + e[8] * ct1.z;
+            Vec3.cross(ct2, contactR, ct1);
+            const k = body.invMass + ct1.y;
+            if (k > 1e-9) {
+              contactImp.set(0, -contactV.y * 0.9 / k, 0);
+              body.applyImpulse(contactImp, contactW);
+            }
+          }
+        }
+        if (touching) {
+          body.position.y += maxPen;
           // Friction: exponential decay of horizontal momentum while touching
           const fr = 1 / (1 + dt * 6);
           body.linMomentum.x *= fr;
