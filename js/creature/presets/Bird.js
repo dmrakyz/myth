@@ -130,7 +130,7 @@ export function createBird() {
       limits: { min: -1.2, max: 1.2 },
     }), torso.id, inner.id);
     c.addMuscle(`flap${sideName}`, new Muscle({
-      joint: shoulder, stiffness: 18, damping: 0.9, maxTorque: 8, restAngle: 0,
+      joint: shoulder, stiffness: 20, damping: 0.9, maxTorque: 10, restAngle: 0,
     }), `shoulder${sideName}`);
 
     // Wrist hinge
@@ -193,15 +193,18 @@ export function createBird() {
 
   // --- Flapping controller ---
   const ctrl = new FlappingController(c);
-  const FLAP_FREQ = 4.2;
+  // Medium/large-bird wingbeat: strong and slow (~3 Hz at full power, like a
+  // gull or crow). Low frequency + larger amplitude reads as a real flap and
+  // lets the overdamped muscle reach a wide stroke instead of a fast buzz.
+  const FLAP_FREQ = 3.0;
   // Hinge sign convention: +rotation about z lifts the RIGHT wing and lowers
   // the LEFT, so the left pattern is amplitude-negated for symmetric flapping.
   ctrl.setPattern('flapR', {
-    frequency: FLAP_FREQ, amplitude: 0.35, phase: 0, restAngle: 0.18,
+    frequency: FLAP_FREQ, amplitude: 0.45, phase: 0, restAngle: 0.18,
     waveform: 'downbeat',
   });
   ctrl.setPattern('flapL', {
-    frequency: FLAP_FREQ, amplitude: -0.35, phase: 0, restAngle: -0.18,
+    frequency: FLAP_FREQ, amplitude: -0.45, phase: 0, restAngle: -0.18,
     waveform: 'downbeat',
   });
   // Wrists trail the shoulder by ~70° and fold slightly on the upstroke.

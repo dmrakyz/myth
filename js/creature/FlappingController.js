@@ -121,7 +121,9 @@ export class FlappingController {
       const muscle = this.creature.muscles.get(muscleId);
       if (!muscle) continue;
 
-      const freq = pat.frequency * this.globalFrequencyScale * lerp(0.25, 1.25, flap);
+      // flapRate scales beat frequency from a slow idle up to the pattern's
+      // rated frequency — not beyond, so a medium/large bird never buzzes.
+      const freq = pat.frequency * this.globalFrequencyScale * lerp(0.5, 1.0, flap);
       // Telemetry: report the wingbeat (highest active oscillation, zero amp = not beating)
       if (pat.frequency > 0 && pat.amplitude * flap * pat.flapScale !== 0) {
         this.currentFrequency = Math.max(this.currentFrequency, freq);
