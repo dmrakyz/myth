@@ -4,6 +4,7 @@ import { Quat } from '../math/Quat.js';
 
 const FWD = new Vec3(0, 0, -1), UP = new Vec3(0, 1, 0), RIGHT = new Vec3(1, 0, 0);
 const fwdW = new Vec3(), upW = new Vec3(), rightW = new Vec3();
+const boostForce = new Vec3();
 
 // Drives muscle target angles with periodic waveforms shaped by flight input.
 // Each muscle gets a pattern:
@@ -31,8 +32,19 @@ export class FlappingController {
       pitchP: 0.8, pitchD: 0.04,   // pitch attitude / rate (D small: torso ω noisy due to wing reactions)
       yawD: 0.3,                   // yaw rate damping
       yawToRoll: 1.2,              // banks against a steady heading drift (turn coordinator)
+      vyDamp: 0.025,               // pitch-setpoint feedback on vertical speed (phugoid damper)
     };
     this.trimPitch = 0.05;         // trim AoA above flight path (rad); wing camber adds ~7° more
+
+    // Unsteady-lift augmentation (N at full flap). Quasi-steady blade-element
+    // theory underestimates flapping force because it ignores the unsteady
+    // mechanisms real flapping exploits — delayed-stall / leading-edge vortex,
+    // rotational (Kramer) lift, and added-mass reaction — which together can
+    // roughly double peak force on a downstroke. We model their cycle-averaged
+    // net as a body-up force scaled by flap power, applied at the CG so it adds
+    // genuine climb authority without injecting any roll/yaw asymmetry. This is
+    // what lets powered flight climb while a pure glide sinks.
+    this.flapBoost = 1.7;
   }
 
   setPattern(muscleId, pattern) {
@@ -106,7 +118,12 @@ export class FlappingController {
       // Pilot pitch input shifts the AoA setpoint (fly-by-wire) rather than
       // fighting the reflex with raw tail deflection; +0.10 rad keeps the
       // commanded AoA just under stall at full stick.
-      const trim = this.trimPitch + 0.10 * clamp(input.pitchUp, -1, 1);
+      // −vyDamp·v_y damps the phugoid (the slow speed/altitude porpoise the
+      // AoA reflex can't see). Climb authority now comes from flapBoost (a
+      // force), not from this setpoint, so damping v_y no longer fights the
+      // climb — it just smooths it.
+      const trim = this.trimPitch + 0.10 * clamp(input.pitchUp, -1, 1)
+        - g.vyDamp * clamp(v.y, -4, 4);
       // Yaw rate biases the roll loop so a slow heading drift is met with an
       // opposing bank instead of accumulating into a spiral. Pilot roll input
       // bypasses this (commanded turns shouldn't be fought).
@@ -114,6 +131,25 @@ export class FlappingController {
       sRoll = clamp(-g.rollP * rollAngle - g.rollD * p - yawCorr, -0.6, 0.6);
       sPitch = clamp(-g.pitchP * (aoaProxy - trim) - g.pitchD * q, -0.7, 0.7);
       sYaw = clamp(-g.yawD * r, -0.5, 0.5);
+    }
+
+    // Apply the unsteady-lift augmentation at the CG, directed up-and-forward —
+    // the true direction of a flapping bird's net force. The vertical part
+    // climbs; the forward part is thrust that holds airspeed during the climb
+    // (without it, climbing bleeds speed and the bird porpoises). Built from
+    // world-up + the body's horizontal heading so it never couples to pitch
+    // attitude, and applied at the CG so it adds no roll/yaw — no spiral.
+    if (this.flapBoost > 0 && flap > 0 && root) {
+      const rb = root.rigidBody;
+      if (!this.stabilize) Quat.rotateVec(rb.orientation, FWD, fwdW);
+      const hx = fwdW.x, hz = fwdW.z;
+      const hlen = Math.hypot(hx, hz) || 1;
+      const f = this.flapBoost * flap;
+      // direction = normalize(worldUp + 0.5·heading); ~63% up, ~37% forward
+      let dx = 0.5 * hx / hlen, dy = 1.0, dz = 0.5 * hz / hlen;
+      const dl = Math.hypot(dx, dy, dz);
+      boostForce.set(dx / dl * f, dy / dl * f, dz / dl * f);
+      rb.applyCentralForce(boostForce);
     }
 
     this.currentFrequency = 0;

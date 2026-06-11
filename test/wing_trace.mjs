@@ -29,7 +29,7 @@ function orientation(rb) {
   return { pitch, roll, yaw };
 }
 
-function run(label, { flapRate, seconds = 12, launchSpeed = 8 }) {
+function run(label, { flapRate, pitchUp = 0, seconds = 12, launchSpeed = 8 }) {
   const water = new WaterSurface({ level: -100 });
   const medium = new FluidMedium(water);
   const world = new PhysicsWorld({ waterSurface: water, fluidMedium: medium });
@@ -38,6 +38,7 @@ function run(label, { flapRate, seconds = 12, launchSpeed = 8 }) {
   bird.setVelocity(0, 0, -launchSpeed);
   world.addCreature(bird);
   world.input.flapRate = flapRate;
+  world.input.pitchUp = pitchUp;
 
   const shoulderR = bird.joints.get('shoulderR');
   const centroid = new Vec3();
@@ -70,4 +71,5 @@ function run(label, { flapRate, seconds = 12, launchSpeed = 8 }) {
 }
 
 run('POWERED', { flapRate: 1.0 });
+run('CLIMB (flap+pitchup)', { flapRate: 1.0, pitchUp: 0.6 });
 run('GLIDE',   { flapRate: 0.0, seconds: 8 });
