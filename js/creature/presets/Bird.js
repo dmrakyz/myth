@@ -137,7 +137,7 @@ export function createBird() {
       limits: { min: -1.2, max: 1.2 },
     }), torso.id, inner.id);
     c.addMuscle(`flap${sideName}`, new Muscle({
-      joint: shoulder, stiffness: 35, damping: 1.1, maxTorque: 14, restAngle: 0,
+      joint: shoulder, stiffness: 35, damping: 1.1, maxTorque: 2.6, restAngle: 0,
     }), `shoulder${sideName}`);
 
     // Wrist hinge
@@ -150,7 +150,7 @@ export function createBird() {
       limits: { min: -0.9, max: 0.9 },
     }), inner.id, outer.id);
     c.addMuscle(`wrist${sideName}`, new Muscle({
-      joint: wrist, stiffness: 6, damping: 0.8, maxTorque: 3, restAngle: 0,
+      joint: wrist, stiffness: 6, damping: 0.8, maxTorque: 1.7, restAngle: 0,
     }), `wrist${sideName}`);
 
     // Secondaries: cambered BET strips on the inner bone. Strip frames are
