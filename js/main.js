@@ -11,6 +11,7 @@ import { CreatureRenderer } from './renderer/CreatureRenderer.js';
 import { KeyboardControls } from './controls/KeyboardControls.js';
 import { VirtualJoystick } from './controls/VirtualJoystick.js';
 import { HUD } from './ui/HUD.js';
+import { AttitudeIndicator } from './ui/AttitudeIndicator.js';
 
 // ── On-screen error log ────────────────────────────────────────────────────
 const errPanel = document.createElement('div');
@@ -57,7 +58,7 @@ function hideLoading() {
 }
 
 // ── Global state ────────────────────────────────────────────────────────────
-let world, bird, renderer, creatureRenderer, hud;
+let world, bird, renderer, creatureRenderer, hud, attitude;
 let keyboard, joystickL, joystickR;
 let simMode = false;  // false = build view, true = simulate
 let autoFlap = true;  // sustained flapping toggle (FLAP button)
@@ -100,6 +101,7 @@ async function boot() {
     creatureRenderer = new CreatureRenderer(renderer.scene, bird);
 
     hud = new HUD();
+    attitude = new AttitudeIndicator('attitude');
     keyboard = new KeyboardControls();
     keyboard.onReset = () => {
       if (bird) { bird.placeAt(0, 30, 0); bird.setVelocity(0, 0, -8); world.input.flapRate = 1; }
@@ -143,6 +145,7 @@ function raf() {
     world.step(dt);
 
     hud.update(world, bird);
+    attitude?.update(bird);
     creatureRenderer.update(world.lerpAlpha);
     renderer.followTarget(bird);
   }
@@ -157,6 +160,7 @@ function clampAxis(v) { return Math.max(-1, Math.min(1, v)); }
 function enterSimMode() {
   simMode = true;
   document.getElementById('hud').classList.remove('hidden');
+  document.getElementById('attitude')?.classList.remove('hidden');
   document.getElementById('joystick-left').classList.remove('hidden');
   document.getElementById('joystick-right').classList.remove('hidden');
   document.getElementById('flap-btn')?.classList.remove('hidden');
@@ -171,6 +175,7 @@ function enterSimMode() {
 function enterBuildMode() {
   simMode = false;
   document.getElementById('hud').classList.add('hidden');
+  document.getElementById('attitude')?.classList.add('hidden');
   document.getElementById('joystick-left').classList.add('hidden');
   document.getElementById('joystick-right').classList.add('hidden');
   document.getElementById('flap-btn')?.classList.add('hidden');
