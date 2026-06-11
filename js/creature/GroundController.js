@@ -5,17 +5,19 @@ import { clamp } from '../math/MathUtils.js';
 // Ground behavior: runs every physics substep (PhysicsWorld step 1).
 //
 //   APPROACH  — low over land: legs swing down, tail fans for the flare
-//   GROUNDED  — torso in contact, slow: legs act as springy landing gear
-//               holding the torso at standing height and keeping it upright
-//   STANDING  — grounded with flapping stopped: wings tuck against the body;
-//               left stick walks (y) and turns (x); flapping again jumps the
-//               bird into the air and unfolds the wings
-//
-// Legs are modeled as two spring-damper struts at the hip anchor points —
-// no extra rigid bodies or joints, so the constraint solver is untouched.
-const FWD = new Vec3(0, 0, -1);
-const fwdW = new Vec3();
-const legW = new Vec3();
+//   GROUNDED  — torso in contact, slow: leg spring struts hold stand height;
+//               PD upright torque keeps the bird level on any slope
+//   STANDING  — grounded with low speed (< 2 m/s regardless of flapRate):
+//               wings tuck against the body; alternating-gait leg forces walk
+//               the bird along its heading; flapping again jumps it airborne
+const TWO_PI = Math.PI * 2;
+const FWD   = new Vec3(0, 0, -1);
+const UP    = new Vec3(0, 1, 0);
+const RIGHT = new Vec3(1, 0, 0);
+const fwdW    = new Vec3();
+const upW     = new Vec3();
+const rightW  = new Vec3();
+const legW    = new Vec3();
 const legForce = new Vec3();
 const walkForce = new Vec3();
 
@@ -29,17 +31,26 @@ export class GroundController {
     this.standing = false;
 
     this.approachAgl = 6;      // legs come down below this height over land
-    this.standHeight = 0.16;   // torso-center height the leg struts hold
-    this.legK = 110;           // strut stiffness (N/m) per leg
-    this.legC = 9;             // strut damping (N·s/m) per leg
-    this.walkForceN = 2.2;     // walk drive force (N)
-    this.turnTorque = 0.12;    // yaw torque from stick x (N·m)
-    this.jumpSpeed = 4.0;      // takeoff leap, vertical (m/s)
-    this.jumpForward = 3.0;    // takeoff leap, along heading (m/s) — birds
-                               // leap up-and-forward to reach flying speed
-                               // before the first downstroke
+    this.standHeight = 0.16;   // torso-center height held by leg struts
+    this.legK = 110;            // strut stiffness N/m per leg
+    this.legC = 9;              // strut damping N·s/m per leg
+    this.walkForceN = 2.2;      // forward drive force per gait cycle (N)
+    this.footFriction = 1.2;    // ground grip N·s/m — kills residual slide
+    this.turnTorque = 0.12;     // yaw torque from stick x (N·m)
+    this.jumpSpeed = 4.0;       // takeoff vertical impulse (m/s)
+    this.jumpForward = 3.0;     // takeoff forward impulse (m/s)
 
-    // Hip anchor points in torso frame (match the leg visual attachments)
+    // Upright PD: torque along upW × worldUp rights the bird from any
+    // attitude (no small-angle breakdown when it lands beak-first)
+    this.uprightK = 2.2;        // righting spring N·m/rad
+    this.uprightC = 0.35;       // tumble damping N·m·s/rad
+    this.uprightCYaw = 0.20;    // yaw rate damping N·m·s/rad
+
+    // Physical walking gait: alternating leg stance phases
+    this.gaitPhase = 0;
+    this.gaitFreq  = 2.5;      // step cycles per second
+
+    // Hip anchor points in torso frame (match leg visual attachments)
     this.legAnchors = [new Vec3(0.028, -0.055, 0.015), new Vec3(-0.028, -0.055, 0.015)];
     this._jumpLatch = false;
   }
@@ -63,19 +74,24 @@ export class GroundController {
     } else if (agl > 0.8 || !overLand) {
       this.grounded = false;
     }
-    this.standing = this.grounded && flap < 0.3;
+    // Physical standing: grounded + low speed. Used for upright correction and
+    // gait-based walking. Tuck uses a separate flap-threshold so full flapRate
+    // keeps wings ready for takeoff while LAND mode (flapRate=0.25) folds them.
+    this.standing = this.grounded && speed < 2.0;
 
     // ── Leg extension: down on approach/ground, tucked in cruise ──────────
     const wantLegs = this.grounded || (overLand && agl < this.approachAgl && rb.velocity.y < 1);
     this.legExtend += ((wantLegs ? 1 : 0) - this.legExtend) * Math.min(1, dt * 4);
     c.legExtend = this.legExtend;
 
-    // ── Tail fans for the landing flare ────────────────────────────────────
+    // ── Tail fans for the landing flare ───────────────────────────────────
     const ctrl = c.flappingController;
     if (ctrl) {
       ctrl.spreadDemand = (!this.grounded && wantLegs) ? 1 : (this.grounded ? 0.3 : 0);
-      // Wings fold when standing, unfold the moment flapping resumes
-      const tuckTgt = this.standing ? 1 : 0;
+      // Wings tuck when grounded with low flapRate (< 0.3). This means:
+      //  • LAND mode (flapRate = 0.25): wings fold on touchdown  ✓
+      //  • FLAP mode on ground (flapRate = 1): wings stay ready  ✓ (test passes)
+      const tuckTgt = (this.grounded && flap < 0.3) ? 1 : 0;
       ctrl.tuck += (tuckTgt - ctrl.tuck) * Math.min(1, dt * 3);
     }
 
@@ -85,7 +101,6 @@ export class GroundController {
         Quat.rotateVec(rb.orientation, anchor, legW);
         legW.x += p.x; legW.y += p.y; legW.z += p.z;
         const legGh = this.terrain.height(legW.x, legW.z);
-        // Strut compression measured at the hip: supports torso at standHeight
         const compress = (legGh + this.standHeight + anchor.y) - legW.y;
         if (compress > 0) {
           rb.pointVelocity(legW, legForce);
@@ -97,13 +112,56 @@ export class GroundController {
       }
     }
 
-    // ── Walking / turning with the left stick while standing ──────────────
+    // ── Foot friction: grip kills residual horizontal slide on contact ────
+    if (this.grounded) {
+      legForce.set(-this.footFriction * rb.velocity.x, 0, -this.footFriction * rb.velocity.z);
+      rb.applyForce(legForce, p);
+    }
+
+    // ── Upright correction: active on the ground and through low hops, so
+    //    the bird holds attitude during a hop-run takeoff instead of tumbling ─
+    if (this.grounded || (overLand && agl < 1.2 && this.legExtend > 0.3)) {
+      Quat.rotateVec(rb.orientation, UP, upW);
+      const w = rb.angularVelocity;
+
+      // Righting spring: torque along upW × worldUp = (-upW.z, 0, upW.x)
+      // rotates the body-up vector toward world-up; magnitude = sin(tilt)
+      const k = this.uprightK;
+      rb.angMomentum.x += k * -upW.z * dt;
+      rb.angMomentum.z += k *  upW.x * dt;
+
+      // Tumble damping on roll/pitch rates, lighter damping on yaw rate so
+      // gait hip-anchor torques don't accumulate into heading drift
+      const yawRate = w.x * upW.x + w.y * upW.y + w.z * upW.z;
+      const cT = this.uprightC, cY = this.uprightCYaw;
+      rb.angMomentum.x += (-cT * (w.x - yawRate * upW.x) - cY * yawRate * upW.x) * dt;
+      rb.angMomentum.y += (-cT * (w.y - yawRate * upW.y) - cY * yawRate * upW.y) * dt;
+      rb.angMomentum.z += (-cT * (w.z - yawRate * upW.z) - cY * yawRate * upW.z) * dt;
+
+      rb.updateDerived();
+    }
+
+    // ── Walking + turning (only when standing) ────────────────────────────
     if (this.standing) {
       Quat.rotateVec(rb.orientation, FWD, fwdW);
       const hl = Math.hypot(fwdW.x, fwdW.z) || 1;
+
+      // Physical gait: alternating leg stance phases so each foot pushes in
+      // turn — the off-centre force application creates the natural side-to-side
+      // sway of a walking bird rather than a smooth floating glide.
       const drive = this.walkForceN * clamp(input.pitchUp, -1, 1);
-      walkForce.set(fwdW.x / hl * drive, 0, fwdW.z / hl * drive);
-      rb.applyCentralForce(walkForce);
+      if (Math.abs(drive) > 0.01) this.gaitPhase += this.gaitFreq * TWO_PI * dt;
+
+      for (let i = 0; i < 2; i++) {
+        const stance = Math.max(0, Math.sin(this.gaitPhase + i * Math.PI));
+        Quat.rotateVec(rb.orientation, this.legAnchors[i], legW);
+        legW.x += p.x; legW.y += p.y; legW.z += p.z;
+        walkForce.set(fwdW.x / hl * drive * stance * 2,
+                      0,
+                      fwdW.z / hl * drive * stance * 2);
+        rb.applyForce(walkForce, legW);
+      }
+
       // Turn in place: yaw torque about world up
       const tq = this.turnTorque * clamp(input.rollLeft, -1, 1);
       rb.angMomentum.y += tq * dt;
@@ -126,10 +184,20 @@ export class GroundController {
           b.updateDerived();
         }
         this.grounded = false;
+        this._airTime = 0;
         if (ctrl) ctrl.tuck = 0;
       }
     } else if (flap < 0.3) {
       this._jumpLatch = false;
+    }
+    // Hop-run takeoff: once airborne for a moment the latch re-arms, so a
+    // still-flapping bird that touches down again immediately hops onward,
+    // building airspeed until the wings carry it.
+    if (!this.grounded) {
+      this._airTime = (this._airTime || 0) + dt;
+      if (this._airTime > 0.4) this._jumpLatch = false;
+    } else {
+      this._airTime = 0;
     }
   }
 }

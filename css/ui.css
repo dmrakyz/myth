@@ -457,6 +457,33 @@ kbd {
   box-shadow: 0 0 16px rgba(77, 163, 255, 0.25);
 }
 
+/* ── Landing mode toggle ───────────────────────────────────────── */
+#land-btn {
+  position: fixed;
+  bottom: calc(224px + var(--safe-bottom));
+  right: 18px;
+  width: 110px;
+  padding: 10px 0;
+  border-radius: 24px;
+  background: rgba(7, 14, 24, 0.65);
+  border: 1.5px solid rgba(255, 196, 64, 0.28);
+  color: rgba(255, 196, 64, 0.60);
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 4px;
+  z-index: 30;
+  touch-action: manipulation;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+#land-btn.active {
+  background: rgba(255, 180, 50, 0.18);
+  border-color: #ffc040;
+  color: #ffc040;
+  box-shadow: 0 0 16px rgba(255, 192, 50, 0.28);
+}
+
 /* ── Launch button ─────────────────────────────────────────────── */
 #launch-btn {
   position: fixed;

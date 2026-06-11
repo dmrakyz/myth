@@ -62,6 +62,7 @@ let world, bird, renderer, creatureRenderer, hud, attitude, terrain;
 let keyboard, joystickL, joystickR;
 let simMode = false;  // false = build view, true = simulate
 let autoFlap = true;  // sustained flapping toggle (FLAP button)
+let landMode = false; // right joystick Y → brake/flare instead of flapRate
 let rafId = null;
 let lastTime = 0;
 
@@ -143,8 +144,15 @@ function raf() {
     world.input.pitchUp  = clampAxis(-ly + (kb.pitchUp  - kb.pitchDown));
     world.input.rollLeft = clampAxis(-lx + (kb.rollLeft - kb.rollRight));
     world.input.yawLeft  = clampAxis(-rx + (kb.yawLeft  - kb.yawRight));
-    world.input.flapRate = clamp01((autoFlap ? 1 : 0) - ry + kb.flap);
-    world.input.brake    = kb.brake ? 1 : 0;
+    if (landMode) {
+      // LAND mode: right stick Y controls brake/flare (pull down = brake);
+      // flapRate stays at a low glide-idle unless FLAP toggle is off.
+      world.input.flapRate = clamp01(autoFlap ? 0.25 : 0);
+      world.input.brake    = clamp01(ry + (kb.brake ? 1 : 0));
+    } else {
+      world.input.flapRate = clamp01((autoFlap ? 1 : 0) - ry + kb.flap);
+      world.input.brake    = kb.brake ? 1 : 0;
+    }
 
     world.step(dt);
 
@@ -168,6 +176,7 @@ function enterSimMode() {
   document.getElementById('joystick-left').classList.remove('hidden');
   document.getElementById('joystick-right').classList.remove('hidden');
   document.getElementById('flap-btn')?.classList.remove('hidden');
+  document.getElementById('land-btn')?.classList.remove('hidden');
   document.getElementById('launch-btn').classList.add('hidden');
   const btn = document.getElementById('mode-toggle');
   if (btn) {
@@ -183,6 +192,7 @@ function enterBuildMode() {
   document.getElementById('joystick-left').classList.add('hidden');
   document.getElementById('joystick-right').classList.add('hidden');
   document.getElementById('flap-btn')?.classList.add('hidden');
+  document.getElementById('land-btn')?.classList.add('hidden');
   document.getElementById('launch-btn').classList.remove('hidden');
   const btn = document.getElementById('mode-toggle');
   if (btn) {
@@ -201,6 +211,13 @@ function wireUI() {
   document.getElementById('flap-btn')?.addEventListener('click', () => {
     autoFlap = !autoFlap;
     document.getElementById('flap-btn').classList.toggle('active', autoFlap);
+  });
+
+  // LAND mode toggle: right joystick Y → brake/flare, flapRate auto-idled
+  document.getElementById('land-btn')?.addEventListener('click', () => {
+    landMode = !landMode;
+    document.getElementById('land-btn').classList.toggle('active', landMode);
+    showToast(landMode ? 'LAND mode — right stick: brake' : 'FLY mode — right stick: flap');
   });
 
   // Launch button

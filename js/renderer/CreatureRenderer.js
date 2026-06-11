@@ -62,7 +62,9 @@ function makeSegmentMesh(seg) {
   const mat = new THREE.MeshPhongMaterial({
     color, emissive: color.clone().multiplyScalar(0.07), shininess: 25,
   });
-  return new THREE.Mesh(geo, mat);
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.castShadow = true;
+  return mesh;
 }
 
 function makeStripMesh(strip, wingName = '') {
@@ -78,6 +80,7 @@ function makeStripMesh(strip, wingName = '') {
     side: THREE.DoubleSide, transparent: true, opacity: 0.62, shininess: 50,
   });
   const mesh = new THREE.Mesh(geo, mat);
+  mesh.castShadow = true;
   mesh.userData.localQ = quatFromFrame(strip.chordDir, strip.spanDir);
   return mesh;
 }
@@ -93,6 +96,7 @@ function makeFeatherMesh(feather, index = 0, total = 1) {
     side: THREE.DoubleSide, transparent: true, opacity: 0.84, shininess: 12,
   });
   const mesh = new THREE.Mesh(geo, mat);
+  mesh.castShadow = true;
   mesh.userData.localQ = quatFromFrame(s.chordDir, s.spanDir);
   return mesh;
 }
@@ -154,6 +158,7 @@ export class CreatureRenderer {
     for (const att of creature.visualAttachments ?? []) {
       const mesh = makeSegmentMesh({ shape: att.shape, dimensions: att.dimensions, color: att.color });
       mesh.frustumCulled = false;
+      mesh.castShadow = true;
       this.group.add(mesh);
       this.attachEntries.push({ att, mesh });
     }
@@ -168,6 +173,7 @@ export class CreatureRenderer {
       });
       const mesh = new THREE.Mesh(geo, mat);
       mesh.frustumCulled = false;
+      mesh.castShadow = true;
       mesh.userData.localQ = quatFromFrame({ x: 0, y: 0, z: 1 }, { x: 1, y: 0, z: 0 });
       this.group.add(mesh);
       this.coverts.push({ vf, mesh });
@@ -190,6 +196,7 @@ export class CreatureRenderer {
         });
         const mesh = new THREE.Mesh(geo, mat);
         mesh.frustumCulled = false;
+        mesh.castShadow = true;
         this.group.add(mesh);
         meshes.push(mesh);
       }

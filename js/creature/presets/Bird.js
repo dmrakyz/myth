@@ -304,6 +304,14 @@ export function createBird() {
     // rises (GroundController swings them out on landing approach)
     { parentSegId: torso.id, localPos: new Vec3( 0.028,  -0.073, 0.015),  shape: 'ellipsoid', dimensions: [0.012, 0.025, 0.012], color: 0xd09040, leg: true },
     { parentSegId: torso.id, localPos: new Vec3(-0.028,  -0.073, 0.015),  shape: 'ellipsoid', dimensions: [0.012, 0.025, 0.012], color: 0xd09040, leg: true },
+    // Claws: 3 toes per foot (center + 2 side toes), fixed relative to torso
+    // so they sit at the natural resting foot position
+    { parentSegId: torso.id, localPos: new Vec3( 0.028,  -0.100,  0.001), shape: 'ellipsoid', dimensions: [0.0018, 0.0015, 0.011], color: 0x1e1408 },
+    { parentSegId: torso.id, localPos: new Vec3( 0.021,  -0.100,  0.004), shape: 'ellipsoid', dimensions: [0.0018, 0.0015, 0.009], color: 0x1e1408 },
+    { parentSegId: torso.id, localPos: new Vec3( 0.035,  -0.100,  0.004), shape: 'ellipsoid', dimensions: [0.0018, 0.0015, 0.009], color: 0x1e1408 },
+    { parentSegId: torso.id, localPos: new Vec3(-0.028,  -0.100,  0.001), shape: 'ellipsoid', dimensions: [0.0018, 0.0015, 0.011], color: 0x1e1408 },
+    { parentSegId: torso.id, localPos: new Vec3(-0.021,  -0.100,  0.004), shape: 'ellipsoid', dimensions: [0.0018, 0.0015, 0.009], color: 0x1e1408 },
+    { parentSegId: torso.id, localPos: new Vec3(-0.035,  -0.100,  0.004), shape: 'ellipsoid', dimensions: [0.0018, 0.0015, 0.009], color: 0x1e1408 },
   ];
 
   // Covert feather rows (visual): lesser + median coverts shingled over the
