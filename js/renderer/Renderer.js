@@ -4,9 +4,10 @@ import * as THREE from 'three';
 const SUN_DIR = new THREE.Vector3(0.35, 0.22, 0.9).normalize();
 
 export class Renderer {
-  constructor(container, waterSurface) {
+  constructor(container, waterSurface, terrain = null) {
     this.container = container;
     this.waterSurface = waterSurface;
+    this.terrain = terrain;
     this._time = 0;
     this._lastNow = performance.now();
 
@@ -41,13 +42,15 @@ export class Renderer {
     rim.position.set(-40, 20, -30);
     this.scene.add(rim);
 
-    // Environment
+    // Environment. Real procedural terrain replaces the silhouette mountain
+    // billboards and the horizon grid when a heightfield is provided.
     this._buildSky();
     this._buildSun();
-    this._buildMountains();
+    if (this.terrain) this._buildTerrain();
+    else this._buildMountains();
     this._buildClouds();
     this._buildWater();
-    this._buildHorizonGrid();
+    if (!this.terrain) this._buildHorizonGrid();
     this._buildStars();
     this._buildFlock();
 
@@ -269,6 +272,47 @@ export class Renderer {
     geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
     const mat = new THREE.PointsMaterial({ color: 0xaab4d0, size: 2.0, sizeAttenuation: true, transparent: true, opacity: 0.5, fog: false });
     this.scene.add(new THREE.Points(geo, mat));
+  }
+
+  // ── Procedural terrain mesh (matches the physics heightfield exactly) ────────
+  _buildTerrain() {
+    const SIZE = 3200, RES = 220;
+    const geo = new THREE.PlaneGeometry(SIZE, SIZE, RES, RES);
+    geo.rotateX(-Math.PI / 2);
+    const pos = geo.attributes.position;
+    const colors = new Float32Array(pos.count * 3);
+    const sea = this.terrain.seaLevel;
+    const col = new THREE.Color();
+    const sand = new THREE.Color(0xb8a87e);
+    const wetSand = new THREE.Color(0x8a7a62);
+    const grass = new THREE.Color(0x5e6e42);
+    const scrub = new THREE.Color(0x77704a);
+    const rock = new THREE.Color(0x6e6058);
+    const snow = new THREE.Color(0xe6e2d8);
+
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i), z = pos.getZ(i);
+      const h = this.terrain.height(x, z);
+      pos.setY(i, h);
+      const a = h - sea;   // height above sea level
+      if (a < 0.5)       col.copy(wetSand);
+      else if (a < 2.5)  col.copy(sand).lerp(wetSand, (2.5 - a) / 2);
+      else if (a < 12)   col.copy(grass).lerp(sand, Math.max(0, (4 - a) / 1.5));
+      else if (a < 22)   col.copy(scrub).lerp(grass, (22 - a) / 10);
+      else if (a < 32)   col.copy(rock).lerp(scrub, (32 - a) / 10);
+      else               col.copy(snow).lerp(rock, Math.max(0, (40 - a) / 8));
+      // subtle deterministic variation breaks up flat banding
+      const v = 0.92 + 0.08 * Math.abs(Math.sin(x * 12.9898 + z * 78.233));
+      colors[i * 3] = col.r * v; colors[i * 3 + 1] = col.g * v; colors[i * 3 + 2] = col.b * v;
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    geo.computeVertexNormals();
+
+    const mat = new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 4 });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.frustumCulled = false;
+    this.scene.add(mesh);
+    this._terrainMesh = mesh;
   }
 
   // ── Distant mountain silhouette ring ──────────────────────────────────────────

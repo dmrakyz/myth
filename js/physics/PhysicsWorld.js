@@ -15,9 +15,10 @@ const ROT_DRAG_C = 0.8;     // rotational drag coefficient
 const gravityForce = new Vec3();
 
 export class PhysicsWorld {
-  constructor({ waterSurface, fluidMedium }) {
+  constructor({ waterSurface, fluidMedium, terrain = null }) {
     this.water = waterSurface;
     this.medium = fluidMedium;
+    this.terrain = terrain;   // optional heightfield; falls back to flat groundY
     this.buoyancy = new Buoyancy(waterSurface);
     this.creatures = [];
     this.gravity = 9.81;
@@ -25,7 +26,7 @@ export class PhysicsWorld {
     this.lerpAlpha = 0;
     this.timeScale = 1;
     this.paused = false;
-    this.groundY = -50;       // sea floor
+    this.groundY = -50;       // sea floor when no terrain
     this._accumulator = 0;
     this.input = { pitchUp: 0, rollLeft: 0, yawLeft: 0, flapRate: 0, dive: 0, brake: 0 };
   }
@@ -69,6 +70,10 @@ export class PhysicsWorld {
       //    themselves are solved with the joint constraints in step 6)
       if (creature.flappingController) {
         creature.flappingController.update(this.time, dt, this.input);
+      }
+      // Ground behavior: landing detection, leg support springs, walking
+      if (creature.groundController) {
+        creature.groundController.update(this, dt, this.input);
       }
 
       // 2. Fluid forces on every surface
@@ -154,9 +159,21 @@ export class PhysicsWorld {
           Vec3.scale(body.angMomentum, s, body.angMomentum);
           body.updateDerived();
         }
-        if (body.position.y < this.groundY + seg.boundingRadius) {
-          body.position.y = this.groundY + seg.boundingRadius;
-          if (body.linMomentum.y < 0) body.linMomentum.y *= -0.3;
+        // Ground contact: terrain heightfield (or flat sea floor). Position
+        // projection + inelastic bounce + tangential friction decay — simple,
+        // unconditionally stable, and enough for standing/walking.
+        const cr = seg.contactRadius ?? seg.boundingRadius;
+        const gh = this.terrain
+          ? this.terrain.height(body.position.x, body.position.z)
+          : this.groundY;
+        if (body.position.y < gh + cr) {
+          body.position.y = gh + cr;
+          if (body.linMomentum.y < 0) body.linMomentum.y *= -0.2;
+          // Friction: exponential decay of horizontal momentum while touching
+          const fr = 1 / (1 + dt * 6);
+          body.linMomentum.x *= fr;
+          body.linMomentum.z *= fr;
+          Vec3.scale(body.angMomentum, 1 / (1 + dt * 4), body.angMomentum);
           body.updateDerived();
         }
       }

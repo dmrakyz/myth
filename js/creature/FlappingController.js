@@ -44,6 +44,18 @@ export class FlappingController {
     // authority. Real birds do this by twisting the spread tail. setRudder().
     this.rudder = null;            // { strip, yawGain, slipGain, cmdGain, max }
 
+    // Active tail fan: spreading the tail physically grows the pitch surface
+    // (more area = more authority + drag — landing flare). Driven by brake
+    // input or spreadDemand (set by the ground controller on approach).
+    this.tailFan = null;           // { strip, baseSpan, gain }
+    this.spreadDemand = 0;
+    this._spread = 0;
+
+    // Wing tuck (0..1): folds the wings against the body — set by the ground
+    // controller when standing. Each pattern may declare tuckAngle; targets
+    // blend toward it and flapping/stabilization fade out as tuck rises.
+    this.tuck = 0;
+
     // Low-pass filter on the roll correction. Flapping injects roll-rate
     // noise at wingbeat frequency; an unfiltered reflex thrashes the wrists
     // asymmetrically every beat (one hand folds while the other extends — looks
@@ -79,6 +91,10 @@ export class FlappingController {
   // fraction; max caps total commanded twist.
   setRudder(strip, { yawGain = 0, slipGain = 0, cmdGain = 0, max = 0.45 } = {}) {
     this.rudder = { strip, yawGain, slipGain, cmdGain, max };
+  }
+
+  setTailFan(strip, { gain = 0.8 } = {}) {
+    this.tailFan = { strip, baseSpan: strip.span, gain };
   }
 
   addWingTwist(wing, { aMin = -0.12, aMax = 0.22, relax = 0.25, max = 0.5 } = {}) {
@@ -133,7 +149,16 @@ export class FlappingController {
 
   update(t, dt, input) {
     this.time = t;
-    const flap = clamp(input.flapRate, 0, 1);
+    const tuck = clamp(this.tuck, 0, 1);
+    const flap = clamp(input.flapRate, 0, 1) * (1 - tuck);
+
+    // Tail spread: pilot brake or ground-controller demand, smoothed (~0.17 s)
+    const spreadTgt = Math.max(clamp(input.brake || 0, 0, 1), clamp(this.spreadDemand, 0, 1));
+    this._spread += (spreadTgt - this._spread) * Math.min(1, dt * 6);
+    if (this.tailFan) {
+      this.tailFan.strip.span = this.tailFan.baseSpan * (1 + this.tailFan.gain * this._spread);
+    }
+    this.creature.tailSpread = this._spread;
 
     // Reflex stabilization signals from the root body
     let sRoll = 0, sPitch = 0, sYaw = 0;
@@ -200,9 +225,12 @@ export class FlappingController {
           rd.yawGain * r + rd.slipGain * clamp(vSide, -4, 4)
             + rd.cmdGain * clamp(input.yawLeft, -1, 1),
           -rd.max, rd.max,
-        );
+        ) * (1 - tuck);
       }
     }
+    // Flight reflexes fade out as the bird tucks for standing — on the ground
+    // the wings shouldn't chase attitude errors the legs are handling.
+    sRoll *= (1 - tuck); sPitch *= (1 - tuck); sYaw *= (1 - tuck);
     // Low-pass on the roll correction (see constructor note)
     this._sRollF += (sRoll - this._sRollF) * Math.min(1, dt * this.rollLpf);
     sRoll = this._sRollF;
@@ -258,7 +286,12 @@ export class FlappingController {
       // Brake: spread/extend toward max rest angle
       const brakeShift = (input.brake || 0) * 0.4;
 
-      muscle.setTargetAngle(pat.restAngle + bias + brakeShift + amp * wave);
+      let target = pat.restAngle + bias + brakeShift + amp * wave;
+      // Blend toward the folded pose as the bird tucks
+      if (tuck > 0 && pat.tuckAngle !== undefined) {
+        target = target * (1 - tuck) + pat.tuckAngle * tuck;
+      }
+      muscle.setTargetAngle(target);
     }
 
     // Active twist: servo each surface's commanded pitch to keep last

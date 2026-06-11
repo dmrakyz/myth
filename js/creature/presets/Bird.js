@@ -70,14 +70,15 @@ export function createBird() {
   c.addMuscle('tailMuscle', new Muscle({
     joint: tailJoint, stiffness: 16, damping: 2.5, maxTorque: 1.5, restAngle: 0,
   }), 'tailJoint');
+  const tailSurfaceStrip = new FluidSurface({
+    bodyPoint: new Vec3(0, 0, 0.01),
+    chordDir: new Vec3(0, 0, 1), spanDir: new Vec3(1, 0, 0),
+    chord: 0.13, span: 0.16,
+    airfoil: AirfoilData.get('flatplate'),
+  });
   c.addWing(new Wing({
     name: 'tailSurface', segmentId: tail.id,
-    strips: [new FluidSurface({
-      bodyPoint: new Vec3(0, 0, 0.01),
-      chordDir: new Vec3(0, 0, 1), spanDir: new Vec3(1, 0, 0),
-      chord: 0.13, span: 0.16,
-      airfoil: AirfoilData.get('flatplate'),
-    })],
+    strips: [tailSurfaceStrip],
   }));
   // Vertical fin equivalent: a splayed bird tail presents side area at
   // sideslip. Without a weathercock surface sideslip grows unchecked and
@@ -244,11 +245,11 @@ export function createBird() {
   // torque than the wrist fold alone, which saturates in a big departure.
   ctrl.setPattern('flapR', {
     frequency: FLAP_FREQ, amplitude: 0.7, phase: 0, restAngle: 0.22,
-    waveform: 'downbeat', stabRoll: -0.25,
+    waveform: 'downbeat', stabRoll: -0.25, tuckAngle: 0.30,
   });
   ctrl.setPattern('flapL', {
     frequency: FLAP_FREQ, amplitude: -0.7, phase: 0, restAngle: -0.22,
-    waveform: 'downbeat', stabRoll: -0.25,
+    waveform: 'downbeat', stabRoll: -0.25, tuckAngle: -0.30,
   });
   // Wrists ride the same cycle as the shoulders ('foldup' is keyed to the
   // downbeat phases): a slight extension whip through the downstroke, then
@@ -259,12 +260,12 @@ export function createBird() {
   ctrl.setPattern('wristR', {
     frequency: FLAP_FREQ, amplitude: 0.35, phase: 0, restAngle: 0.05,
     waveform: 'foldup',
-    stabRoll: -0.6,
+    stabRoll: -0.6, tuckAngle: -0.85,
   });
   ctrl.setPattern('wristL', {
     frequency: FLAP_FREQ, amplitude: -0.35, phase: 0, restAngle: -0.05,
     waveform: 'foldup',
-    stabRoll: -0.6,
+    stabRoll: -0.6, tuckAngle: 0.85,
   });
   // Pronation/supination through the stroke (see FlappingController.twists).
   // Gentle servo: a hard AoA clamp over-relieves and dumps the lift the
@@ -281,6 +282,8 @@ export function createBird() {
   // Active rudder (tail twist): yaw-rate damping + sideslip weathercock +
   // yaw-stick authority on the vertical fin strip.
   ctrl.setRudder(tailFinStrip, { yawGain: 0.5, slipGain: 0.04, cmdGain: 0.3, max: 0.4 });
+  // Active tail fan: spreading grows the physical tail area (flare/brake)
+  ctrl.setTailFan(tailSurfaceStrip, { gain: 0.8 });
   c.flappingController = ctrl;
 
   // --- Visual anatomy (beak, eyes, legs) ---
@@ -297,9 +300,50 @@ export function createBird() {
     { parentSegId: head.id,  localPos: new Vec3(0,       -0.006, -0.065), shape: 'ellipsoid', dimensions: [0.007, 0.006, 0.026], color: 0xd4a830 },
     { parentSegId: head.id,  localPos: new Vec3( 0.024,   0.003, -0.010), shape: 'ellipsoid', dimensions: [0.007, 0.007, 0.005], color: 0x181010 },
     { parentSegId: head.id,  localPos: new Vec3(-0.024,   0.003, -0.010), shape: 'ellipsoid', dimensions: [0.007, 0.007, 0.005], color: 0x181010 },
-    { parentSegId: torso.id, localPos: new Vec3( 0.028,  -0.073, 0.015),  shape: 'ellipsoid', dimensions: [0.012, 0.025, 0.012], color: 0xd09040 },
-    { parentSegId: torso.id, localPos: new Vec3(-0.028,  -0.073, 0.015),  shape: 'ellipsoid', dimensions: [0.012, 0.025, 0.012], color: 0xd09040 },
+    // Legs: `leg: true` → renderer stretches them downward as creature.legExtend
+    // rises (GroundController swings them out on landing approach)
+    { parentSegId: torso.id, localPos: new Vec3( 0.028,  -0.073, 0.015),  shape: 'ellipsoid', dimensions: [0.012, 0.025, 0.012], color: 0xd09040, leg: true },
+    { parentSegId: torso.id, localPos: new Vec3(-0.028,  -0.073, 0.015),  shape: 'ellipsoid', dimensions: [0.012, 0.025, 0.012], color: 0xd09040, leg: true },
   ];
+
+  // Covert feather rows (visual): lesser + median coverts shingled over the
+  // secondaries' leading region on each arm, and primary coverts on the hand.
+  c.visualFeathers = [];
+  for (const side of [+1, -1]) {
+    const arm = c.findSegmentByName(`arm${side > 0 ? 'R' : 'L'}`);
+    const hand = c.findSegmentByName(`hand${side > 0 ? 'R' : 'L'}`);
+    for (let i = 0; i < 5; i++) {
+      const x = side * (-0.075 + i * 0.0375);
+      // lesser coverts: small, at the leading edge, darkest
+      c.visualFeathers.push({
+        segId: arm.id, localPos: new Vec3(x, 0.0045, -0.046),
+        chord: 0.035, span: 0.036, pitch: 0.10, color: 0x7a6a56,
+      });
+      // median coverts: mid-chord row
+      c.visualFeathers.push({
+        segId: arm.id, localPos: new Vec3(x, 0.0035, -0.018),
+        chord: 0.046, span: 0.036, pitch: 0.11, color: 0x8d7c64,
+      });
+    }
+    for (let i = 0; i < 4; i++) {
+      // primary coverts over the feather roots on the hand
+      c.visualFeathers.push({
+        segId: hand.id, localPos: new Vec3(side * (-0.06 + i * 0.04), 0.0035, -0.012),
+        chord: 0.04, span: 0.038, pitch: 0.08, color: 0x83735e,
+      });
+    }
+  }
+
+  // Tail fan (visual): individual rectrices that fan out with tailSpread.
+  // Replaces the tail plate's box mesh; the physical tailSurface strip
+  // (invisible) grows its span in sync via ctrl.setTailFan above.
+  c.tailFanVisual = {
+    segId: tail.id, count: 7,
+    root: new Vec3(0, 0.001, -0.068),
+    length: 0.155, chord: 0.034,
+    minFan: 0.30, maxFan: 0.95,    // total fan angle (rad) closed → spread
+    color: 0x7e7060,
+  };
 
   return c;
 }

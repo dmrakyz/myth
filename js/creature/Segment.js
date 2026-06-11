@@ -61,6 +61,14 @@ export class Segment {
     const d = this.dimensions;
     this.volume = volumeForShape(this.shape, d);
     this.boundingRadius = boundingRadiusForShape(this.shape, d);
+    // Vertical half-extent for ground contact: an elongated body (torso lies
+    // along z) touches ground at its belly, not at its bounding sphere.
+    switch (this.shape) {
+      case 'ellipsoid': case 'box': this.contactRadius = d[1]; break;
+      case 'capsule': this.contactRadius = d[0]; break;
+      case 'plate': this.contactRadius = 0.005; break;
+      default: this.contactRadius = this.boundingRadius;
+    }
     inertiaForShape(this.shape, d, this.baseMass, this._inertia);
 
     // Parallel-axis contributions from attached point masses

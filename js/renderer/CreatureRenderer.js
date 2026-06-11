@@ -115,9 +115,13 @@ export class CreatureRenderer {
     this.stripEntries.length = 0;
     this.featherEntries.length = 0;
     this.attachEntries = [];    // { att, mesh }
+    this.coverts = [];          // { vf, mesh } static decorative feather quads
+    this.tailFan = null;        // { segId, meshes[], cfg }
     this.creature = creature;
 
     for (const [id, seg] of creature.segments) {
+      // The tail plate is replaced visually by the rectrix fan below
+      if (creature.tailFanVisual && id === creature.tailFanVisual.segId) continue;
       const mesh = makeSegmentMesh(seg);
       mesh.frustumCulled = false;
       this.group.add(mesh);
@@ -152,6 +156,44 @@ export class CreatureRenderer {
       mesh.frustumCulled = false;
       this.group.add(mesh);
       this.attachEntries.push({ att, mesh });
+    }
+
+    // Covert rows / decorative feather quads
+    for (const vf of creature.visualFeathers ?? []) {
+      const geo = new THREE.PlaneGeometry(vf.chord, vf.span);
+      const color = new THREE.Color(vf.color);
+      const mat = new THREE.MeshPhongMaterial({
+        color, emissive: color.clone().multiplyScalar(0.05),
+        side: THREE.DoubleSide, transparent: true, opacity: 0.9, shininess: 18,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.frustumCulled = false;
+      mesh.userData.localQ = quatFromFrame({ x: 0, y: 0, z: 1 }, { x: 1, y: 0, z: 0 });
+      this.group.add(mesh);
+      this.coverts.push({ vf, mesh });
+    }
+
+    // Tail fan: individual rectrices that pivot at the tail root and fan
+    // with creature.tailSpread (written by the FlappingController)
+    const tf = creature.tailFanVisual;
+    if (tf) {
+      const meshes = [];
+      for (let i = 0; i < tf.count; i++) {
+        const geo = new THREE.PlaneGeometry(tf.chord, tf.length);
+        // Pivot at the near (root) end: shift geometry so origin is the root
+        geo.translate(0, -tf.length / 2, 0);
+        const t = tf.count > 1 ? i / (tf.count - 1) : 0.5;
+        const color = new THREE.Color(tf.color).lerp(new THREE.Color(0xa89878), Math.abs(t - 0.5) * 2 * 0.5);
+        const mat = new THREE.MeshPhongMaterial({
+          color, emissive: color.clone().multiplyScalar(0.05),
+          side: THREE.DoubleSide, transparent: true, opacity: 0.9, shininess: 14,
+        });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.frustumCulled = false;
+        this.group.add(mesh);
+        meshes.push(mesh);
+      }
+      this.tailFan = { cfg: tf, meshes };
     }
   }
 
@@ -210,9 +252,57 @@ export class CreatureRenderer {
       if (!seg) continue;
       const rb = seg.rigidBody;
       const lp = att.localPos;
-      const wp = rotByQuat(rb.orientation, lp.x, lp.y, lp.z);
+      let ly = lp.y;
+      // Legs stretch downward as the ground controller extends them
+      if (att.leg) {
+        const ext = c.legExtend ?? 0;
+        mesh.scale.y = 1 + 1.8 * ext;
+        ly -= 0.032 * ext;
+      }
+      const wp = rotByQuat(rb.orientation, lp.x, ly, lp.z);
       mesh.position.set(rb.position.x + wp.x, rb.position.y + wp.y, rb.position.z + wp.z);
       mesh.quaternion.set(rb.orientation.x, rb.orientation.y, rb.orientation.z, rb.orientation.w);
+    }
+
+    // Covert rows: static quads on their parent segment with built-in pitch
+    for (const { vf, mesh } of this.coverts) {
+      const seg = c.segments.get(vf.segId);
+      if (!seg) continue;
+      const rb = seg.rigidBody;
+      const lp = vf.localPos;
+      const wp = rotByQuat(rb.orientation, lp.x, lp.y, lp.z);
+      mesh.position.set(rb.position.x + wp.x, rb.position.y + wp.y, rb.position.z + wp.z);
+      _bodyQ.set(rb.orientation.x, rb.orientation.y, rb.orientation.z, rb.orientation.w);
+      _p.set(1, 0, 0);
+      _localQ.setFromAxisAngle(_p, vf.pitch || 0);
+      mesh.quaternion.copy(_bodyQ).multiply(_localQ).multiply(mesh.userData.localQ);
+    }
+
+    // Tail fan: rectrices pivot at the tail root, fanning with tailSpread
+    if (this.tailFan) {
+      const { cfg, meshes } = this.tailFan;
+      const seg = c.segments.get(cfg.segId);
+      if (seg) {
+        const rb = seg.rigidBody;
+        const spread = c.tailSpread ?? 0;
+        const fan = cfg.minFan + (cfg.maxFan - cfg.minFan) * spread;
+        const root = cfg.root;
+        const wp = rotByQuat(rb.orientation, root.x, root.y, root.z);
+        _bodyQ.set(rb.orientation.x, rb.orientation.y, rb.orientation.z, rb.orientation.w);
+        for (let i = 0; i < meshes.length; i++) {
+          const t = meshes.length > 1 ? i / (meshes.length - 1) : 0.5;
+          const yaw = (t - 0.5) * fan;
+          const mesh = meshes[i];
+          mesh.position.set(rb.position.x + wp.x, rb.position.y + wp.y, rb.position.z + wp.z);
+          // R_body · R_y(yaw) · R_x(-90°): quad's length axis lies aft, fanned
+          _p.set(0, 1, 0);
+          _localQ.setFromAxisAngle(_p, yaw);
+          mesh.quaternion.copy(_bodyQ).multiply(_localQ);
+          _p.set(1, 0, 0);
+          _localQ.setFromAxisAngle(_p, -Math.PI / 2);
+          mesh.quaternion.multiply(_localQ);
+        }
+      }
     }
   }
 }

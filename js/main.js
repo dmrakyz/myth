@@ -58,7 +58,7 @@ function hideLoading() {
 }
 
 // ── Global state ────────────────────────────────────────────────────────────
-let world, bird, renderer, creatureRenderer, hud, attitude;
+let world, bird, renderer, creatureRenderer, hud, attitude, terrain;
 let keyboard, joystickL, joystickR;
 let simMode = false;  // false = build view, true = simulate
 let autoFlap = true;  // sustained flapping toggle (FLAP button)
@@ -85,19 +85,23 @@ async function boot() {
 
     setProgress(55, 'Building creature...');
     const { createBird } = await import('./creature/presets/Bird.js');
+    const { Terrain } = await import('./terrain/Terrain.js');
+    const { GroundController } = await import('./creature/GroundController.js');
 
     setProgress(70, 'Starting renderer...');
     const water = new WaterSurface({ level: -10 });
     const medium = new FluidMedium(water);
-    world = new PhysicsWorld({ waterSurface: water, fluidMedium: medium });
+    terrain = new Terrain({ seaLevel: -10 });
+    world = new PhysicsWorld({ waterSurface: water, fluidMedium: medium, terrain });
 
     bird = createBird();
     bird.placeAt(0, 30, 0);
     bird.setVelocity(0, 0, -8);
+    bird.groundController = new GroundController(bird, terrain);
     world.addCreature(bird);
     world.input.flapRate = 1;
 
-    renderer = new Renderer(document.getElementById('canvas-container'), water);
+    renderer = new Renderer(document.getElementById('canvas-container'), water, terrain);
     creatureRenderer = new CreatureRenderer(renderer.scene, bird);
 
     hud = new HUD();
@@ -258,11 +262,15 @@ function wireUI() {
         return;
       }
       // Reload bird
-      import('./creature/presets/Bird.js').then(({ createBird }) => {
+      Promise.all([
+        import('./creature/presets/Bird.js'),
+        import('./creature/GroundController.js'),
+      ]).then(([{ createBird }, { GroundController }]) => {
         if (bird) world.removeCreature(bird);
         bird = createBird();
         bird.placeAt(0, 30, 0);
         bird.setVelocity(0, 0, -8);
+        bird.groundController = new GroundController(bird, terrain);
         world.addCreature(bird);
         creatureRenderer.init(bird);
         document.getElementById('creature-panel').classList.add('hidden');
