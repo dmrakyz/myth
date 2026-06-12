@@ -317,12 +317,12 @@ export function createBird() {
   ctrl.setPattern('wristR', {
     frequency: FLAP_FREQ, amplitude: 0.28, phase: 0, restAngle: -0.6,
     waveform: 'downwhip',
-    stabRoll: -0.5, tuckAngle: -0.85, pitchBias: 0.15,
+    stabRoll: -0.20, tuckAngle: -0.85, pitchBias: 0.15,
   });
   ctrl.setPattern('wristL', {
     frequency: FLAP_FREQ, amplitude: -0.28, phase: 0, restAngle: 0.6,
     waveform: 'downwhip',
-    stabRoll: -0.5, tuckAngle: 0.85, pitchBias: -0.15,
+    stabRoll: -0.20, tuckAngle: 0.85, pitchBias: -0.15,
   });
   // Pronation/supination through the stroke (see FlappingController.twists).
   // Big-stroke flapping demands big twist: the hand sections see the wind
@@ -339,7 +339,7 @@ export function createBird() {
   // aft of CG = nose-up moment. So all pitch signals must drive toward negative angles.
   ctrl.setPattern('tailMuscle', {
     frequency: 0, amplitude: 0, restAngle: -0.04,
-    pitchBias: -0.5,
+    pitchBias: -0.4,
     flapScale: 0,
     stabPitch: -1.5,
   });

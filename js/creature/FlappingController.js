@@ -201,7 +201,7 @@ export class FlappingController {
     const root = this.creature.root;
     // How strongly the pilot is commanding pitch. Ramps to 1 above 20% stick so
     // the stabilizer backs off and lets the pilot dive or hard-climb freely.
-    const pilotPitchAuth = clamp(Math.abs(clamp(input.pitchUp, -1, 1)) * 5, 0, 1);
+    const pilotPitchAuth = clamp(Math.abs(clamp(input.pitchUp, -1, 1)) * 3, 0, 1);
     if (this.stabilize && root) {
       const rb = root.rigidBody;
       Quat.rotateVec(rb.orientation, FWD, fwdW);
