@@ -53,6 +53,12 @@ export class Joint {
   worldPivotA(out) { return this.bodyA.localToWorld(this.pivotA, out); }
   worldPivotB(out) { return this.bodyB.localToWorld(this.pivotB, out); }
 
+  // Angular velocity of bodyB about the hinge axis in world space.
+  getHingeRate() {
+    this.bodyA.localDirToWorld(this.axisA, this._t1);
+    return Vec3.dot(this.bodyB.angularVelocity, this._t1);
+  }
+
   // Current hinge angle: rotation of bodyB's reference vector about the hinge
   // axis relative to bodyA's reference vector.
   getHingeAngle() {

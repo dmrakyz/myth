@@ -4,7 +4,6 @@ import { Quat } from '../math/Quat.js';
 
 const FWD = new Vec3(0, 0, -1), UP = new Vec3(0, 1, 0), RIGHT = new Vec3(1, 0, 0);
 const fwdW = new Vec3(), upW = new Vec3(), rightW = new Vec3();
-const boostForce = new Vec3();
 
 // Drives muscle target angles with periodic waveforms shaped by flight input.
 // Each muscle gets a pattern:
@@ -96,16 +95,19 @@ export class FlappingController {
     // should be lifting.
     this.twistDecay = 8;
 
-    // Residual cycle-averaged climb assist (N at full flap). The unsteady
-    // flapping force itself now lives on the strips (FluidSurface
-    // unsteadyGain — LEV / rotational lift / added mass scaled by each
-    // strip's real plunge kinematics), so thrust has the correct position
-    // and direction. This small CG term only covers the cycle-averaged
-    // wake-capture effect the strip model can't see, and trims the climb
-    // rate; it is a fraction of its former value.
-    this.flapBoost = 2.5;
-    this.climbRate = 2.0;          // target climb speed for adaptive assist (m/s)
-    this.flapBoostGain = 1.2;      // assist ramps up when vy < climbRate, down when above
+    // Wake-capture: at the top of each downstroke the wing intercepts the
+    // shed vortex ring from the previous upstroke, producing a brief Cl spike
+    // (Ellington's wake capture mechanism). Modelled as a transient pitchOffset
+    // injection (+0.06 rad for ~22 ms) on stroke reversal detected via the
+    // shoulder joint rate crossing zero. Purely from geometry — no added force.
+    this._shoulderJointR = null;
+    this._shoulderJointL = null;
+    this._wingStripsR = [];
+    this._wingStripsL = [];
+    this._wakeCaptureTimerR = 0;
+    this._wakeCaptureTimerL = 0;
+    this._prevShoulderRateR = 0;
+    this._prevShoulderRateL = 0;
   }
 
   // Register active twist for a Wing (BET strips) or a FeatherArray.
@@ -121,6 +123,16 @@ export class FlappingController {
 
   addWingTwist(wing, { aMin = -0.12, aMax = 0.22, relax = 0.25, max = 0.5, aHold = null } = {}) {
     this.twists.push({ feathers: wing.feathers || null, strips: wing.strips || null, aMin, aMax, relax, max, aHold });
+  }
+
+  // Register the shoulder joints and wing strip arrays for wake-capture injection.
+  // shoulderR/L: the flap Joint objects whose getHingeRate() signals stroke reversal.
+  // stripsR/L: FluidSurface arrays that receive the transient pitchOffset boost.
+  setWakeCaptureSources({ shoulderR = null, shoulderL = null, stripsR = [], stripsL = [] } = {}) {
+    this._shoulderJointR = shoulderR;
+    this._shoulderJointL = shoulderL;
+    this._wingStripsR = stripsR;
+    this._wingStripsL = stripsL;
   }
 
   setPattern(muscleId, pattern) {
@@ -281,41 +293,6 @@ export class FlappingController {
     this._sRollF += (sRoll - this._sRollF) * Math.min(1, dt * this.rollLpf);
     sRoll = this._sRollF;
 
-    // Apply the unsteady-lift augmentation at the CG, directed up-and-forward —
-    // the true direction of a flapping bird's net force. The vertical part
-    // climbs; the forward part is thrust that holds airspeed during the climb
-    // (without it, climbing bleeds speed and the bird porpoises). Built from
-    // world-up + the body's horizontal heading so it never couples to pitch
-    // attitude, and applied at the CG so it adds no roll/yaw — no spiral.
-    if (this.flapBoost > 0 && flap > 0 && root) {
-      const rb = root.rigidBody;
-      if (!this.stabilize) {
-        Quat.rotateVec(rb.orientation, FWD, fwdW);
-        Quat.rotateVec(rb.orientation, UP, upW);
-      }
-      // Zero the assist when inverted — upW.y negative means the bird is upside
-      // down and world-up force would levitate it regardless of orientation.
-      const uprightGate = Math.max(0, upW.y);
-      const hx = fwdW.x, hz = fwdW.z;
-      const hlen = Math.hypot(hx, hz) || 1;
-      const vy = rb.velocity.y;
-      // Anaerobic burst: takeoff power is ~2× cruise for the first seconds —
-      // scoped to near-ground flapping via takeoffAssist, gone by 4 m AGL.
-      const burst = 1 + 1.3 * clamp(this.takeoffAssist, 0, 1);
-      // Attitude guard: the assist is world-up referenced, so past ~30°
-      // nose-up it stops representing wing force and would power a loop —
-      // fade it to zero between 30° and 50° pitch so a strong climb can't
-      // run away into a backflip.
-      const noseGuard = 1 - clamp((fwdW.y - 0.5) / 0.27, 0, 1);
-      const f = Math.max(0, this.flapBoost + this.flapBoostGain * clamp(this.climbRate - vy, -3, 3))
-        * flap * burst * noseGuard * uprightGate;
-      // direction = normalize(worldUp + 0.5·heading); ~63% up, ~37% forward
-      let dx = 0.5 * hx / hlen, dy = 1.0, dz = 0.5 * hz / hlen;
-      const dl = Math.hypot(dx, dy, dz);
-      boostForce.set(dx / dl * f, dy / dl * f, dz / dl * f);
-      rb.applyCentralForce(boostForce);
-    }
-
     this.currentFrequency = 0;
     for (const [muscleId, pat] of this.patterns) {
       const muscle = this.creature.muscles.get(muscleId);
@@ -388,6 +365,38 @@ export class FlappingController {
           else po -= po * decay;
           f.controlPitch = clamp(po, -tw.max, tw.max);
         }
+      }
+    }
+
+    // Wake capture: inject a transient pitchOffset on the wing strips at each
+    // downstroke onset. Right shoulder rate goes positive→negative at the top
+    // of the stroke; left shoulder is mirrored (negative→positive). The 0.06 rad
+    // offset decays linearly over 22 ms, then clears. Applied AFTER the twist
+    // loop so it isn't immediately corrected away; the twist will recover it on
+    // the following substeps once the AoA returns to its normal band.
+    const WAKE_WINDOW = 0.022;
+    if (this._shoulderJointR) {
+      const rateR = this._shoulderJointR.getHingeRate();
+      if (this._prevShoulderRateR > 0 && rateR <= 0) {
+        this._wakeCaptureTimerR = WAKE_WINDOW;
+      }
+      this._prevShoulderRateR = rateR;
+      if (this._wakeCaptureTimerR > 0) {
+        const wc = 0.06 * (this._wakeCaptureTimerR / WAKE_WINDOW);
+        this._wakeCaptureTimerR = Math.max(0, this._wakeCaptureTimerR - dt);
+        for (const s of this._wingStripsR) s.pitchOffset += wc;
+      }
+    }
+    if (this._shoulderJointL) {
+      const rateL = this._shoulderJointL.getHingeRate();
+      if (this._prevShoulderRateL < 0 && rateL >= 0) {
+        this._wakeCaptureTimerL = WAKE_WINDOW;
+      }
+      this._prevShoulderRateL = rateL;
+      if (this._wakeCaptureTimerL > 0) {
+        const wc = 0.06 * (this._wakeCaptureTimerL / WAKE_WINDOW);
+        this._wakeCaptureTimerL = Math.max(0, this._wakeCaptureTimerL - dt);
+        for (const s of this._wingStripsL) s.pitchOffset += wc;
       }
     }
   }

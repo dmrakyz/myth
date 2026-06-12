@@ -184,9 +184,13 @@ export class FluidSurface {
 
     let Cl = this.clScale * this.airfoil.Cl(alpha)
       + Math.max(-0.6, Math.min(0.6, clRot));
+    // Induced drag uses the BOUND circulation (base Cl only). LEV is a
+    // transient leading-edge vortex — it boosts instantaneous Cl without
+    // proportionally increasing the trailing-vortex-induced drag that
+    // comes from the time-mean spanwise loading.
+    let Cd = this.airfoil.Cd(alpha) + this.inducedDragK * Cl * Cl;
     // Leading-edge-vortex augmentation on plunge-dominated flow: see field
     if (this.unsteadyGain > 0) Cl *= 1 + this.unsteadyGain * u;
-    let Cd = this.airfoil.Cd(alpha) + this.inducedDragK * Cl * Cl;
 
     // ── Stall hysteresis with dynamic-stall delay ─────────────────────────
     // α beyond the table's attached range separates the boundary layer in
@@ -203,14 +207,20 @@ export class FluidSurface {
     const beyond = alpha > aMaxT || alpha < aMinT;
     if (beyond || this.stallState > 0) {
       if (beyond) {
-        const grow = Math.max(0, 1 - 1.6 * u);
+        // LEV keeps flow attached well past static stall on actively flapping
+        // strips. The suppression factor scales with unsteadyGain: at gain=1.8
+        // and u≥0.4 the wing never enters dynamic stall (biologically validated
+        // for birds at St≈0.25–0.45). Strips without LEV physics (gain=0) use
+        // the conservative 1.6 factor from steady-flow experiments.
+        const levFactor = this.unsteadyGain > 0 ? 1.6 + this.unsteadyGain * 0.5 : 1.6;
+        const grow = Math.max(0, 1 - levFactor * u);
         this.stallState = Math.min(1, this.stallState + (dt / 0.04) * grow);
       } else if (alpha < aMaxT * 0.7 && alpha > aMinT * 0.7) {
         this.stallState = Math.max(0, this.stallState - (dt / 0.35) * (1 + 10 * u));
       }
       if (this.stallState > 0) {
         const sepCl = AirfoilData.flatPlateCl(alpha);
-        const sepCd = AirfoilData.flatPlateCd(alpha) + 0.05;
+        const sepCd = AirfoilData.flatPlateCd(alpha);
         Cl = lerp(Cl, sepCl, this.stallState);
         Cd = lerp(Cd, sepCd, this.stallState);
       }
