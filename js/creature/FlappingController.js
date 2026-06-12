@@ -28,10 +28,10 @@ export class FlappingController {
     // how strongly it responds (stabRoll/stabPitch/stabYaw).
     this.stabilize = true;
     this.gains = {
-      rollP: 2.6, rollD: 0.45,     // roll angle / roll rate
-      pitchP: 0.8, pitchD: 0.45,   // pitch attitude / filtered pitch rate
-      yawD: 0.3,                   // yaw rate damping
-      yawToRoll: 1.6,              // banks against a steady heading drift (turn coordinator)
+      rollP: 3.2, rollD: 1.1,      // roll angle / roll rate
+      pitchP: 1.2, pitchD: 0.75,   // pitch attitude / filtered pitch rate
+      yawD: 0.4,                   // yaw rate damping
+      yawToRoll: 2.0,              // banks against a steady heading drift (turn coordinator)
       vyDamp: 0.035,               // pitch-setpoint feedback on vertical speed (phugoid damper)
       slipRoll: 0,                 // sideslip velocity → roll correction (tuned per preset)
     };
@@ -61,7 +61,7 @@ export class FlappingController {
     // asymmetrically every beat (one hand folds while the other extends — looks
     // like one wing flapping). The spiral mode it must fight is far slower than
     // the wingbeat, so a ~1.2 Hz filter keeps stability and kills the thrash.
-    this.rollLpf = 5;              // cutoff (rad/s)
+    this.rollLpf = 9;              // cutoff (rad/s)
     this._sRollF = 0;
 
     // Low-pass filter on the raw pitch rate q before the D term. Torso ω
@@ -133,6 +133,7 @@ export class FlappingController {
       stabRoll: 0,
       stabPitch: 0,
       stabYaw: 0,
+      brakeAngle: 0,
       ...pattern,
     });
   }
@@ -169,9 +170,10 @@ export class FlappingController {
     this.time = t;
     const tuck = clamp(this.tuck, 0, 1);
     const flap = clamp(input.flapRate, 0, 1) * (1 - tuck);
+    const brake = clamp(input.brake || 0, 0, 1);
 
     // Tail spread: pilot brake or ground-controller demand, smoothed (~0.17 s)
-    const spreadTgt = Math.max(clamp(input.brake || 0, 0, 1), clamp(this.spreadDemand, 0, 1));
+    const spreadTgt = Math.max(brake, clamp(this.spreadDemand, 0, 1));
     this._spread += (spreadTgt - this._spread) * Math.min(1, dt * 6);
     if (this.tailFan) {
       this.tailFan.strip.span = this.tailFan.baseSpan * (1 + this.tailFan.gain * this._spread);
@@ -213,8 +215,12 @@ export class FlappingController {
       // AoA reflex can't see). Climb authority now comes from flapBoost (a
       // force), not from this setpoint, so damping v_y no longer fights the
       // climb — it just smooths it.
+      // Brake = a landing flare: raise the AoA setpoint so the bird pitches
+      // nose-UP into the wind and bleeds speed against induced drag + the
+      // spread tail — not a raw tail deflection (which noses over and DIVES).
       const ta = clamp(this.takeoffAssist, 0, 1);
       const trim = this.trimPitch + 0.10 * clamp(input.pitchUp, -1, 1)
+        + 0.18 * brake
         - g.vyDamp * clamp(v.y, -4, 4) * (1 - ta) + 0.06 * ta;
       // Yaw rate biases the roll loop so a slow heading drift is met with an
       // opposing bank instead of accumulating into a spiral. Pilot roll input
@@ -270,7 +276,13 @@ export class FlappingController {
       // Anaerobic burst: takeoff power is ~2× cruise for the first seconds —
       // scoped to near-ground flapping via takeoffAssist, gone by 4 m AGL.
       const burst = 1 + 1.3 * clamp(this.takeoffAssist, 0, 1);
-      const f = Math.max(0, this.flapBoost + this.flapBoostGain * clamp(this.climbRate - vy, -3, 3)) * flap * burst;
+      // Attitude guard: the assist is world-up referenced, so past ~30°
+      // nose-up it stops representing wing force and would power a loop —
+      // fade it to zero between 30° and 50° pitch so a strong climb can't
+      // run away into a backflip.
+      const noseGuard = 1 - clamp((fwdW.y - 0.5) / 0.27, 0, 1);
+      const f = Math.max(0, this.flapBoost + this.flapBoostGain * clamp(this.climbRate - vy, -3, 3))
+        * flap * burst * noseGuard;
       // direction = normalize(worldUp + 0.5·heading); ~63% up, ~37% forward
       let dx = 0.5 * hx / hlen, dy = 1.0, dz = 0.5 * hz / hlen;
       const dl = Math.hypot(dx, dy, dz);
@@ -306,10 +318,12 @@ export class FlappingController {
         pat.stabPitch * sPitch +
         pat.stabYaw * sYaw;
 
-      // Brake: spread/extend toward max rest angle
-      const brakeShift = (input.brake || 0) * 0.4;
-
-      let target = pat.restAngle + bias + brakeShift + amp * wave;
+      // Brake: per-pattern deflection (presets decide what braking looks
+      // like — e.g. wings rocked up into a high-drag vee). The pitch flare
+      // itself goes through the AoA setpoint above, NOT a blanket angle
+      // shift: shifting the tail muscle positive points its TE down, which
+      // noses the bird over and makes it accelerate instead of braking.
+      let target = pat.restAngle + bias + (pat.brakeAngle ?? 0) * brake + amp * wave;
       // Blend toward the folded pose as the bird tucks
       if (tuck > 0 && pat.tuckAngle !== undefined) {
         target = target * (1 - tuck) + pat.tuckAngle * tuck;

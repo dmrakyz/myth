@@ -385,9 +385,15 @@ export class CreatureRenderer {
       const wp = rotByQuat(ori, lp.x, lp.y, lp.z);
       mesh.position.set(pos.x + wp.x, pos.y + wp.y, pos.z + wp.z);
       _bodyQ.set(ori.x, ori.y, ori.z, ori.w);
+      mesh.quaternion.copy(_bodyQ);
+      if (vf.yaw) {
+        _p.set(0, 1, 0);
+        _q.setFromAxisAngle(_p, vf.yaw);
+        mesh.quaternion.multiply(_q);
+      }
       _p.set(1, 0, 0);
       _localQ.setFromAxisAngle(_p, vf.pitch || 0);
-      mesh.quaternion.copy(_bodyQ).multiply(_localQ).multiply(mesh.userData.localQ);
+      mesh.quaternion.multiply(_localQ).multiply(mesh.userData.localQ);
     }
 
     // Tail fan: rectrices pivot at the tail root, fanning with tailSpread

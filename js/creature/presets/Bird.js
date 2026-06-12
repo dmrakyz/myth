@@ -68,7 +68,7 @@ export function createBird() {
     limits: { min: -0.6, max: 0.6 },
   }), torso.id, tail.id);
   c.addMuscle('tailMuscle', new Muscle({
-    joint: tailJoint, stiffness: 16, damping: 2.5, maxTorque: 1.5, restAngle: 0,
+    joint: tailJoint, stiffness: 22, damping: 3.0, maxTorque: 2.5, restAngle: 0,
   }), 'tailJoint');
   const tailSurfaceStrip = new FluidSurface({
     bodyPoint: new Vec3(0, 0, 0.01),
@@ -213,10 +213,10 @@ export function createBird() {
     const primaries = new FeatherArray({
       name: `primaries${sideName}`,
       segmentId: outer.id,
-      count: 9,
+      count: 11,
       rootX: -0.075,
-      spacing: 0.021,
-      rootChord: 0.05, tipChord: 0.028,
+      spacing: 0.017,
+      rootChord: 0.042, tipChord: 0.024,
       featherLength: 0.20,
       spanSign: side,
       fanStart: 0.06, fanEnd: 0.55,
@@ -276,12 +276,12 @@ export function createBird() {
   // lowers the other (hinges mirror), shifting the lift vector — far more roll
   // torque than the wrist fold alone, which saturates in a big departure.
   ctrl.setPattern('flapR', {
-    frequency: FLAP_FREQ, amplitude: 1.0, phase: 0, restAngle: 0.08,
-    waveform: 'downbeat', stabRoll: -0.40, tuckAngle: 0.30,
+    frequency: FLAP_FREQ, amplitude: 1.2, phase: 0, restAngle: 0.08,
+    waveform: 'downbeat', stabRoll: -0.40, tuckAngle: 0.30, brakeAngle: 0.35,
   });
   ctrl.setPattern('flapL', {
-    frequency: FLAP_FREQ, amplitude: -1.0, phase: 0, restAngle: -0.08,
-    waveform: 'downbeat', stabRoll: -0.40, tuckAngle: -0.30,
+    frequency: FLAP_FREQ, amplitude: -1.2, phase: 0, restAngle: -0.08,
+    waveform: 'downbeat', stabRoll: -0.40, tuckAngle: -0.30, brakeAngle: -0.35,
   });
   // Wrists ride the same cycle as the shoulders ('foldup' is keyed to the
   // downbeat phases): a slight extension whip through the downstroke, then
@@ -289,15 +289,20 @@ export function createBird() {
   // recovery-stroke wing folding. Roll stabilization/steering also lives
   // here: a common-sign offset folds one hand while extending the other
   // (hinge conventions mirror), shifting lift spanwise — how birds bank.
+  // restAngle ∓0.6: the hand droops below the arm — a gull's arched wing.
+  // The drooped outer panel reads beautifully and deepens the power stroke,
+  // but it is ANHEDRAL: it converts sideslip into a rolling moment with the
+  // unstable sign, so it must be paid for with active roll stabilization
+  // (slipRoll + the stiffer roll gains set below).
   ctrl.setPattern('wristR', {
-    frequency: FLAP_FREQ, amplitude: 0.35, phase: 0, restAngle: 0.02,
+    frequency: FLAP_FREQ, amplitude: 0.35, phase: 0, restAngle: -0.6,
     waveform: 'foldup',
-    stabRoll: -1.0, tuckAngle: -0.85,
+    stabRoll: -1.5, tuckAngle: -0.85,
   });
   ctrl.setPattern('wristL', {
-    frequency: FLAP_FREQ, amplitude: -0.35, phase: 0, restAngle: -0.02,
+    frequency: FLAP_FREQ, amplitude: -0.35, phase: 0, restAngle: 0.6,
     waveform: 'foldup',
-    stabRoll: -1.0, tuckAngle: 0.85,
+    stabRoll: -1.5, tuckAngle: 0.85,
   });
   // Pronation/supination through the stroke (see FlappingController.twists).
   // Big-stroke flapping demands big twist: the hand sections see the wind
@@ -306,6 +311,10 @@ export function createBird() {
   // (aHold) so the upstroke carries weight instead of pushing down.
   for (const w of twistWiring) ctrl.addWingTwist(w, { relax: 0.7, max: 0.6, aHold: 0.03 });
   ctrl.twistDecay = 100;
+  // Sideslip → roll correction: pays for the drooped-hand anhedral (see the
+  // wrist patterns above). Senses the spiral departure at the slip stage,
+  // before it has rolled the bird at all.
+  ctrl.gains.slipRoll = 0.90;
   // Tail: pitch control surface. Negative hinge angle = TE up = downward tail force
   // aft of CG = nose-up moment. So all pitch signals must drive toward negative angles.
   ctrl.setPattern('tailMuscle', {
@@ -357,6 +366,19 @@ export function createBird() {
   for (const side of [+1, -1]) {
     const arm = c.findSegmentByName(`arm${side > 0 ? 'R' : 'L'}`);
     const hand = c.findSegmentByName(`hand${side > 0 ? 'R' : 'L'}`);
+    // Secondaries: individual aft-pointing feathers fanned along the arm's
+    // trailing edge (the physical lift stays on the BET strips beneath; these
+    // give the wing its real shingled trailing edge instead of a bare quad)
+    for (let i = 0; i < 8; i++) {
+      const t = i / 7;
+      const x = side * (-0.085 + i * 0.0243);
+      c.visualFeathers.push({
+        segId: arm.id, localPos: new Vec3(x, -0.0015, 0.058),
+        chord: 0.105, span: 0.030,
+        pitch: 0.13, yaw: side * t * 0.16,
+        color: i % 2 ? 0x90806a : 0x988770,
+      });
+    }
     for (let i = 0; i < 5; i++) {
       const x = side * (-0.075 + i * 0.0375);
       // lesser coverts: small, at the leading edge, darkest
