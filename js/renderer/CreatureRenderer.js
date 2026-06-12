@@ -101,6 +101,16 @@ function makeFeatherMesh(feather, index = 0, total = 1) {
   return mesh;
 }
 
+// Scratch for the wing-fold pose
+const _fT = new THREE.Quaternion();
+const _fA = new THREE.Quaternion();
+const _fH = new THREE.Quaternion();
+const _fTmpQ = new THREE.Quaternion();
+const _fV = new THREE.Vector3();
+const _fV2 = new THREE.Vector3();
+const _AXIS_Y = new THREE.Vector3(0, 1, 0);
+const _AXIS_Z = new THREE.Vector3(0, 0, 1);
+
 export class CreatureRenderer {
   constructor(scene, creature) {
     this.scene = scene;
@@ -179,6 +189,27 @@ export class CreatureRenderer {
       this.coverts.push({ vf, mesh });
     }
 
+    // Wing-fold rig: birds fold the wing into a Z against the body when they
+    // land (humerus sweeps back, hand folds back over the tail). The physics
+    // rig has no sweep DOF — only flap hinges — so the fold is a visual pose
+    // blended in by the physical tuck signal. Each side caches its bones and
+    // joints; the folded pose is rebuilt from the joint pivots every frame so
+    // it follows the torso on any slope.
+    this.foldSides = [];
+    this.foldPose = new Map();   // segId → { p: Vector3, q: Quaternion }
+    for (const side of ['R', 'L']) {
+      const arm = creature.findSegmentByName?.(`arm${side}`);
+      const hand = creature.findSegmentByName?.(`hand${side}`);
+      const sj = creature.joints.get(`shoulder${side}`);
+      const wj = creature.joints.get(`wrist${side}`);
+      if (arm && hand && sj && wj) {
+        this.foldSides.push({ arm, hand, sj, wj, sign: side === 'R' ? 1 : -1 });
+        this.foldPose.set(arm.id, { p: new THREE.Vector3(), q: new THREE.Quaternion() });
+        this.foldPose.set(hand.id, { p: new THREE.Vector3(), q: new THREE.Quaternion() });
+      }
+    }
+    this._foldAmount = 0;
+
     // Tail fan: individual rectrices that pivot at the tail root and fan
     // with creature.tailSpread (written by the FlappingController)
     const tf = creature.tailFanVisual;
@@ -204,16 +235,79 @@ export class CreatureRenderer {
     }
   }
 
+  // Build the folded wing pose for one side in world space and blend it with
+  // the live physics pose by `fold` (0..1). Fold geometry: arm swept back
+  // ~63° about the shoulder and pressed down ~26° against the flank; hand
+  // swept to ~83° (nearly straight aft) so primaries lie along the tail region
+  // without crossing the body centreline — the lateral Z-fold real gulls use.
+  _computeFold(c, fold) {
+    const rbT = c.root.rigidBody;
+    _fT.set(rbT.orientation.x, rbT.orientation.y, rbT.orientation.z, rbT.orientation.w);
+    for (const fs of this.foldSides) {
+      const s = fs.sign;
+      // Arm: yaw 63° aft (Ry) then roll 26° down into the flank (Rz).
+      // Hand: yaw 83° aft — keeps the hand's long axis pointing toward the
+      // tail (+z) with a small positive x, so it never crosses the body.
+      _fA.setFromAxisAngle(_AXIS_Y, -s * 1.10);
+      _fTmpQ.setFromAxisAngle(_AXIS_Z, -s * 0.45);
+      _fA.premultiply(_fTmpQ);
+      _fH.setFromAxisAngle(_AXIS_Y, -s * 1.45);
+      _fTmpQ.setFromAxisAngle(_AXIS_Z, -s * 0.30);
+      _fH.premultiply(_fTmpQ);
+
+      // Arm center (torso frame): shoulder pivot + folded rest offset
+      const pS = fs.sj.pivotA, pBa = fs.sj.pivotB;
+      _fV.set(-pBa.x, -pBa.y, -pBa.z).applyQuaternion(_fA);
+      const cAx = pS.x + _fV.x, cAy = pS.y + _fV.y, cAz = pS.z + _fV.z;
+      // Wrist (torso frame), then hand center
+      const pWa = fs.wj.pivotA, pBh = fs.wj.pivotB;
+      _fV.set(pWa.x, pWa.y, pWa.z).applyQuaternion(_fA);
+      const wx = cAx + _fV.x, wy = cAy + _fV.y, wz = cAz + _fV.z;
+      _fV.set(-pBh.x, -pBh.y, -pBh.z).applyQuaternion(_fH);
+      const cHx = wx + _fV.x, cHy = wy + _fV.y, cHz = wz + _fV.z;
+
+      // To world, then blend with the physics pose
+      const armPose = this.foldPose.get(fs.arm.id);
+      const handPose = this.foldPose.get(fs.hand.id);
+      const rbA = fs.arm.rigidBody, rbH = fs.hand.rigidBody;
+
+      _fV.set(cAx, cAy, cAz).applyQuaternion(_fT)
+        .add(_fV2.set(rbT.position.x, rbT.position.y, rbT.position.z));
+      armPose.p.set(rbA.position.x, rbA.position.y, rbA.position.z).lerp(_fV, fold);
+      _fTmpQ.copy(_fT).multiply(_fA);
+      armPose.q.set(rbA.orientation.x, rbA.orientation.y, rbA.orientation.z, rbA.orientation.w)
+        .slerp(_fTmpQ, fold);
+
+      _fV.set(cHx, cHy, cHz).applyQuaternion(_fT)
+        .add(_fV2.set(rbT.position.x, rbT.position.y, rbT.position.z));
+      handPose.p.set(rbH.position.x, rbH.position.y, rbH.position.z).lerp(_fV, fold);
+      _fTmpQ.copy(_fT).multiply(_fH);
+      handPose.q.set(rbH.orientation.x, rbH.orientation.y, rbH.orientation.z, rbH.orientation.w)
+        .slerp(_fTmpQ, fold);
+    }
+  }
+
   update(_lerpAlpha) {
     const c = this.creature;
     if (!c) return;
 
-    // Segments: mesh position/orientation directly from physics rigid body.
-    // Wing fold is now handled by the sweep joint physics (sweepR/L muscles),
-    // not a visual override here.
+    // Wing fold pose (driven by the physical tuck signal)
+    const tuck = c.flappingController ? Math.max(0, Math.min(1, c.flappingController.tuck)) : 0;
+    const foldActive = tuck > 0.02 && this.foldSides.length > 0 && c.root;
+    this._foldAmount = foldActive ? tuck : 0;
+    if (foldActive) this._computeFold(c, tuck);
+    const foldPose = foldActive ? this.foldPose : null;
+
+    // Segments
     for (const [id, mesh] of this.segMeshes) {
       const seg = c.segments.get(id);
       if (!seg) continue;
+      const fp = foldPose?.get(id);
+      if (fp) {
+        mesh.position.copy(fp.p);
+        mesh.quaternion.copy(fp.q);
+        continue;
+      }
       const rb = seg.rigidBody;
       mesh.position.set(rb.position.x, rb.position.y, rb.position.z);
       mesh.quaternion.set(rb.orientation.x, rb.orientation.y, rb.orientation.z, rb.orientation.w);
@@ -227,10 +321,13 @@ export class CreatureRenderer {
       const seg = c.segments.get(segId);
       if (!seg) continue;
       const rb = seg.rigidBody;
+      const fp = foldPose?.get(segId);
+      const ori = fp ? fp.q : rb.orientation;
+      const pos = fp ? fp.p : rb.position;
       const bp = strip.bodyPoint;
-      const wp = rotByQuat(rb.orientation, bp.x, bp.y, bp.z);
-      mesh.position.set(rb.position.x + wp.x, rb.position.y + wp.y, rb.position.z + wp.z);
-      _bodyQ.set(rb.orientation.x, rb.orientation.y, rb.orientation.z, rb.orientation.w);
+      const wp = rotByQuat(ori, bp.x, bp.y, bp.z);
+      mesh.position.set(pos.x + wp.x, pos.y + wp.y, pos.z + wp.z);
+      _bodyQ.set(ori.x, ori.y, ori.z, ori.w);
       const pitch = strip.camberAngle + strip.pitchOffset;
       const sd = strip.spanDir;
       _p.set(sd.x, sd.y, sd.z);
@@ -243,15 +340,18 @@ export class CreatureRenderer {
       const seg = c.segments.get(segId);
       if (!seg) continue;
       const rb = seg.rigidBody;
+      const fp = foldPose?.get(segId);
+      const ori = fp ? fp.q : rb.orientation;
+      const pos = fp ? fp.p : rb.position;
       const s = feather.surface;
       const bp = s.bodyPoint;
-      const wp = rotByQuat(rb.orientation, bp.x, bp.y, bp.z);
-      mesh.position.set(rb.position.x + wp.x, rb.position.y + wp.y, rb.position.z + wp.z);
+      const wp = rotByQuat(ori, bp.x, bp.y, bp.z);
+      mesh.position.set(pos.x + wp.x, pos.y + wp.y, pos.z + wp.z);
 
       const sd = s.spanDir;
       _p.set(sd.x, sd.y, sd.z);
       _localQ.setFromAxisAngle(_p, s.pitchOffset);
-      _bodyQ.set(rb.orientation.x, rb.orientation.y, rb.orientation.z, rb.orientation.w);
+      _bodyQ.set(ori.x, ori.y, ori.z, ori.w);
       mesh.quaternion.copy(_bodyQ).multiply(_localQ).multiply(mesh.userData.localQ);
     }
 
@@ -278,10 +378,13 @@ export class CreatureRenderer {
       const seg = c.segments.get(vf.segId);
       if (!seg) continue;
       const rb = seg.rigidBody;
+      const fp = foldPose?.get(vf.segId);
+      const ori = fp ? fp.q : rb.orientation;
+      const pos = fp ? fp.p : rb.position;
       const lp = vf.localPos;
-      const wp = rotByQuat(rb.orientation, lp.x, lp.y, lp.z);
-      mesh.position.set(rb.position.x + wp.x, rb.position.y + wp.y, rb.position.z + wp.z);
-      _bodyQ.set(rb.orientation.x, rb.orientation.y, rb.orientation.z, rb.orientation.w);
+      const wp = rotByQuat(ori, lp.x, lp.y, lp.z);
+      mesh.position.set(pos.x + wp.x, pos.y + wp.y, pos.z + wp.z);
+      _bodyQ.set(ori.x, ori.y, ori.z, ori.w);
       mesh.quaternion.copy(_bodyQ);
       if (vf.yaw) {
         _p.set(0, 1, 0);

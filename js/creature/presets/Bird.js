@@ -105,43 +105,6 @@ export function createBird() {
   for (const side of [+1, -1]) {
     const sideName = side > 0 ? 'R' : 'L';
 
-    // Sweep pivot: a near-massless body sitting at the shoulder junction that
-    // provides the fore-aft sweep DOF (Y-axis hinge) between torso and the
-    // Z-axis flap hinge. This replaces the visual-only _computeFold approach
-    // in the renderer — the sweep muscle's tuckAngle physically folds the
-    // wing when the bird stands or dives.
-    const sweepPivot = new Segment({
-      name: `sweep${sideName}`,
-      shape: 'ellipsoid',
-      dimensions: [0.005, 0.005, 0.005],
-      mass: 0.005,
-      position: new Vec3(side * 0.05, 0.02, -0.03),
-      aeroProfile: 'bluntbody',
-      noBodyPanels: true,
-      color: 0x8a7a66,
-    });
-    c.addSegment(sweepPivot);
-    // Aft fold direction differs by side because both joints share +Y axis:
-    // positive θ folds the LEFT arm aft, negative θ folds the RIGHT arm aft.
-    // Limits are set accordingly so aft fold stays inside the allowed range.
-    const sweepLimits = side > 0
-      ? { min: -1.40, max: 0.25 }   // right: aft = negative angle
-      : { min: -0.25, max: 1.40 };  // left:  aft = positive angle
-    const sweepJoint = c.addJoint(`sweepJoint${sideName}`, new Joint({
-      bodyA: torso.rigidBody, bodyB: sweepPivot.rigidBody,
-      pivotA: new Vec3(side * 0.05, 0.02, -0.03),
-      pivotB: new Vec3(0, 0, 0),
-      type: 'hinge',
-      axisA: new Vec3(0, 1, 0), axisB: new Vec3(0, 1, 0),
-      limits: sweepLimits,
-    }), torso.id, sweepPivot.id);
-    // High stiffness keeps sweep locked during normal flight so it does not
-    // absorb flap torque or reduce roll authority. Tuck/brake still work because
-    // the muscle target is driven far from restAngle.
-    c.addMuscle(`sweep${sideName}`, new Muscle({
-      joint: sweepJoint, stiffness: 40, damping: 3.0, maxTorque: 8, restAngle: 0,
-    }), `sweepJoint${sideName}`);
-
     // Inner bone (humerus+forearm): shoulder at x=±0.05 to wrist at ±0.24
     const inner = new Segment({
       name: `arm${sideName}`, shape: 'ellipsoid',
@@ -166,19 +129,19 @@ export function createBird() {
     });
     c.addSegment(outer);
 
-    // Shoulder hinge: flap axis = sweep-pivot fore-aft (z). Now connects the
-    // sweep pivot to the arm so the flap axis rotates with the sweep angle —
-    // physically correct (the flap hinge sweeps aft with the arm during fold).
+    // Shoulder hinge: flap axis = body fore-aft (z). High muscle damping
+    // (below) models the viscoelastic shoulder, absorbing the wingbeat
+    // reaction so flapping doesn't force a pitch limit cycle on the torso.
     const shoulder = c.addJoint(`shoulder${sideName}`, new Joint({
-      bodyA: sweepPivot.rigidBody, bodyB: inner.rigidBody,
-      pivotA: new Vec3(0, 0, 0),
+      bodyA: torso.rigidBody, bodyB: inner.rigidBody,
+      pivotA: new Vec3(side * 0.05, 0.02, -0.03),
       pivotB: new Vec3(-side * 0.095, 0, 0),
       type: 'hinge',
       axisA: new Vec3(0, 0, 1), axisB: new Vec3(0, 0, 1),
       limits: { min: -1.2, max: 1.2 },
-    }), sweepPivot.id, inner.id);
+    }), torso.id, inner.id);
     c.addMuscle(`flap${sideName}`, new Muscle({
-      joint: shoulder, stiffness: 35, damping: 1.1, maxTorque: 5, restAngle: 0,
+      joint: shoulder, stiffness: 35, damping: 4.0, maxTorque: 5, restAngle: 0,
     }), `shoulder${sideName}`);
 
     // Wrist hinge
@@ -200,12 +163,12 @@ export function createBird() {
     const innerStrips = [];
     for (let i = 0; i < 5; i++) {
       const x = side * (-0.075 + i * 0.0375);
-      const chord = 0.115 - i * 0.007;
+      const chord = 0.14 - i * 0.008;
       const bodyPoint = new Vec3(x, 0, 0.0);
       innerStrips.push(new FluidSurface({
         bodyPoint,
         chordDir: new Vec3(0, 0, 1), spanDir: new Vec3(1, 0, 0),
-        chord, span: 0.075,
+        chord, span: 0.09,
         airfoil: naca,
         camberAngle: 0.12,             // ~7° positive incidence for glide lift
       }));
@@ -297,8 +260,9 @@ export function createBird() {
     applyPlanform(wingSurfs, { span: 2 * halfSpan, area, stations });
     // Unsteady-lift augmentation on the wing strips: flapping force comes
     // from the strips' real plunge kinematics (LEV/rotational/added-mass
-    // boost in FluidSurface), not from an artificial body force.
-    for (const s of wingSurfs) s.unsteadyGain = 1.8;
+    // boost in FluidSurface), not from an artificial body force. Sized so the
+    // cycle-averaged lift reaches the bird's weight at the trimmed wingbeat.
+    for (const s of wingSurfs) s.unsteadyGain = 2.0;
     applyPlanform([tailSurfaceStrip], { span: 0.16, area: 0.13 * 0.16, carryover: 1.6 });
     applyPlanform([tailFinStrip], { span: 0.16, area: 0.14 * 0.16, carryover: 1.6 });
   }
@@ -311,8 +275,9 @@ export function createBird() {
   const FLAP_FREQ = 3.0;   // gull wingbeat
   // Hinge sign convention: +rotation about z lifts the RIGHT wing and lowers
   // the LEFT, so the left pattern is amplitude-negated for symmetric flapping.
-  // Amplitude 0.7 rad commands an ~80° stroke envelope — the stiffer shoulder
-  // muscle tracks most of it, landing in a gull's 60–90° stroke range.
+  // Amplitude 1.5 rad commands a large stroke envelope — the deeper stroke is
+  // what lets the wing carry the bird's weight on BET alone (no body-force
+  // assist); the overdamped shoulder tracks most of it into a gull-like beat.
   // restAngle 0.22 sets a visible dihedral: the stroke rides above level, and
   // the upward-vee makes roll passively self-righting — without it a slow
   // launch can roll the bird all the way over before the reflex catches it.
@@ -328,11 +293,11 @@ export function createBird() {
   // hand alone read as an unstable U; arching the arm over it gives both the
   // silhouette and the stability, so the active reflex stays gentle.
   ctrl.setPattern('flapR', {
-    frequency: FLAP_FREQ, amplitude: 1.2, phase: 0, restAngle: 0.30,
+    frequency: FLAP_FREQ, amplitude: 1.5, phase: 0, restAngle: 0.30,
     waveform: 'downbeat', stabRoll: -0.40, tuckAngle: 0.30, brakeAngle: 0.35,
   });
   ctrl.setPattern('flapL', {
-    frequency: FLAP_FREQ, amplitude: -1.2, phase: 0, restAngle: -0.30,
+    frequency: FLAP_FREQ, amplitude: -1.5, phase: 0, restAngle: -0.30,
     waveform: 'downbeat', stabRoll: -0.40, tuckAngle: -0.30, brakeAngle: -0.35,
   });
   // Wrists ride the same cycle as the shoulders ('foldup' is keyed to the
@@ -353,18 +318,18 @@ export function createBird() {
   // via the stiffer muscle spring during the upstroke — no forced extension
   // that would push against the rising arm and generate negative lift.
   // Amplitude 0.28 puts the peak target at -0.88 rad (within the -0.90 limit).
-  // pitchBias folds the wrist tighter during a dive (negative pitchUp), giving
-  // a partial sweep-back — the closest approximation possible with the Z-axis-
-  // only hinge (full backward fold requires an additional sweep DOF).
+  // The wing folds for standing/landing via the tuckAngle blend; there is no
+  // fore-aft sweep DOF, so the grounded fold is completed visually in the
+  // renderer (a pose, not a force — see CreatureRenderer._computeFold).
   ctrl.setPattern('wristR', {
     frequency: FLAP_FREQ, amplitude: 0.28, phase: 0, restAngle: -0.6,
     waveform: 'downwhip',
-    stabRoll: -0.20, tuckAngle: -0.85,
+    stabRoll: -0.32, tuckAngle: -0.85,
   });
   ctrl.setPattern('wristL', {
     frequency: FLAP_FREQ, amplitude: -0.28, phase: 0, restAngle: 0.6,
     waveform: 'downwhip',
-    stabRoll: -0.20, tuckAngle: 0.85,
+    stabRoll: -0.32, tuckAngle: 0.85,
   });
   // Pronation/supination through the stroke (see FlappingController.twists).
   // Big-stroke flapping demands big twist: the hand sections see the wind
@@ -392,23 +357,6 @@ export function createBird() {
   ctrl.setRudder(tailFinStrip, { yawGain: 0.9, slipGain: 0.08, cmdGain: 0.55, max: 0.45 });
   // Active tail fan: spreading grows the physical tail area (flare/brake)
   ctrl.setTailFan(tailSurfaceStrip, { gain: 0.8 });
-  // Shoulder sweep patterns: static fore-aft fold driven by tuck/brake signals.
-  // Sign convention: positive Y-rotation folds the LEFT arm aft, negative folds
-  // the RIGHT arm aft (right-hand rule about the shared +Y hinge axis). The
-  // tuckAngle targets mirror accordingly. No oscillation (frequency=0) and no
-  // pitchBias — pitch is handled by the tail surface only.
-  ctrl.setPattern('sweepR', {
-    frequency: 0, amplitude: 0, restAngle: 0,
-    flapScale: 0, pitchBias: 0,
-    tuckAngle: -1.10, brakeAngle: -0.50,
-    stabRoll: 0, stabPitch: 0,
-  });
-  ctrl.setPattern('sweepL', {
-    frequency: 0, amplitude: 0, restAngle: 0,
-    flapScale: 0, pitchBias: 0,
-    tuckAngle: 1.10, brakeAngle: 0.50,
-    stabRoll: 0, stabPitch: 0,
-  });
   c.flappingController = ctrl;
 
   // Wire wake-capture: shoulder joints signal stroke reversal; secondary strips

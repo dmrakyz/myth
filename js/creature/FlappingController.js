@@ -39,7 +39,7 @@ export class FlappingController {
       slipRoll: 0,                 // sideslip velocity → roll correction (tuned per preset)
     };
     this.trimPitch = 0.05;         // trim AoA above flight path (rad); wing camber adds ~7° more
-    this.bankCommand = 0.6;        // max commanded bank angle at full stick (rad, ~35°)
+    this.bankCommand = 0.9;        // max commanded bank angle at full stick (rad, ~35°)
 
     // Active rudder: a vertical tail surface whose deflection about its
     // vertical span axis is servo-driven — yaw-rate damping plus sideslip
