@@ -22,10 +22,14 @@ export function createBird() {
   const naca = AirfoilData.get('naca2412');
 
   // --- Torso ---
+  // 0.20 kg torso → ~0.36 kg all-up (small-gull range). Lighter than the
+  // original 0.30 because the wing must carry the full weight on BET alone:
+  // with the flapBoost body-force gone, this wing loading is what lets powered
+  // flight hold level instead of sinking.
   const torso = new Segment({
     name: 'torso', shape: 'ellipsoid',
     dimensions: [0.05, 0.055, 0.13],
-    mass: 0.30,
+    mass: 0.20,
     position: new Vec3(0, 0, 0),
     aeroProfile: 'streamlined',
     color: 0x8a7a66,
@@ -140,8 +144,10 @@ export function createBird() {
       axisA: new Vec3(0, 0, 1), axisB: new Vec3(0, 0, 1),
       limits: { min: -1.2, max: 1.2 },
     }), torso.id, inner.id);
+    // Powerful downstroke (maxTorque 7 — the pectoralis), high damping 4.0 for
+    // the viscoelastic shoulder that absorbs the wingbeat pitch reaction.
     c.addMuscle(`flap${sideName}`, new Muscle({
-      joint: shoulder, stiffness: 35, damping: 4.0, maxTorque: 5, restAngle: 0,
+      joint: shoulder, stiffness: 40, damping: 4.0, maxTorque: 7, restAngle: 0,
     }), `shoulder${sideName}`);
 
     // Wrist hinge
