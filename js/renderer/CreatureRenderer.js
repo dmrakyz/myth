@@ -237,20 +237,22 @@ export class CreatureRenderer {
 
   // Build the folded wing pose for one side in world space and blend it with
   // the live physics pose by `fold` (0..1). Fold geometry: arm swept back
-  // ~63° about the shoulder, hand folded back ~120° about the wrist — the
-  // primaries end up lying along the flank pointing at the tail.
+  // ~63° about the shoulder and pressed down ~26° against the flank; hand
+  // swept to ~83° (nearly straight aft) so primaries lie along the tail region
+  // without crossing the body centreline — the lateral Z-fold real gulls use.
   _computeFold(c, fold) {
     const rbT = c.root.rigidBody;
     _fT.set(rbT.orientation.x, rbT.orientation.y, rbT.orientation.z, rbT.orientation.w);
     for (const fs of this.foldSides) {
       const s = fs.sign;
-      // Local fold orientations (torso frame): yaw sweeps the wing back,
-      // a touch of roll presses it against the body
+      // Arm: yaw 63° aft (Ry) then roll 26° down into the flank (Rz).
+      // Hand: yaw 83° aft — keeps the hand's long axis pointing toward the
+      // tail (+z) with a small positive x, so it never crosses the body.
       _fA.setFromAxisAngle(_AXIS_Y, -s * 1.10);
-      _fTmpQ.setFromAxisAngle(_AXIS_Z, -s * 0.16);
+      _fTmpQ.setFromAxisAngle(_AXIS_Z, -s * 0.45);
       _fA.premultiply(_fTmpQ);
-      _fH.setFromAxisAngle(_AXIS_Y, -s * 2.10);
-      _fTmpQ.setFromAxisAngle(_AXIS_Z, -s * 0.10);
+      _fH.setFromAxisAngle(_AXIS_Y, -s * 1.45);
+      _fTmpQ.setFromAxisAngle(_AXIS_Z, -s * 0.30);
       _fH.premultiply(_fTmpQ);
 
       // Arm center (torso frame): shoulder pivot + folded rest offset

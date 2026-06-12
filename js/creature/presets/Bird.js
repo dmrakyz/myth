@@ -276,11 +276,11 @@ export function createBird() {
   // lowers the other (hinges mirror), shifting the lift vector — far more roll
   // torque than the wrist fold alone, which saturates in a big departure.
   ctrl.setPattern('flapR', {
-    frequency: FLAP_FREQ, amplitude: 1.0, phase: 0, restAngle: 0.22,
+    frequency: FLAP_FREQ, amplitude: 1.0, phase: 0, restAngle: 0.08,
     waveform: 'downbeat', stabRoll: -0.40, tuckAngle: 0.30,
   });
   ctrl.setPattern('flapL', {
-    frequency: FLAP_FREQ, amplitude: -1.0, phase: 0, restAngle: -0.22,
+    frequency: FLAP_FREQ, amplitude: -1.0, phase: 0, restAngle: -0.08,
     waveform: 'downbeat', stabRoll: -0.40, tuckAngle: -0.30,
   });
   // Wrists ride the same cycle as the shoulders ('foldup' is keyed to the
@@ -290,12 +290,12 @@ export function createBird() {
   // here: a common-sign offset folds one hand while extending the other
   // (hinge conventions mirror), shifting lift spanwise — how birds bank.
   ctrl.setPattern('wristR', {
-    frequency: FLAP_FREQ, amplitude: 0.35, phase: 0, restAngle: 0.05,
+    frequency: FLAP_FREQ, amplitude: 0.35, phase: 0, restAngle: 0.02,
     waveform: 'foldup',
     stabRoll: -1.0, tuckAngle: -0.85,
   });
   ctrl.setPattern('wristL', {
-    frequency: FLAP_FREQ, amplitude: -0.35, phase: 0, restAngle: -0.05,
+    frequency: FLAP_FREQ, amplitude: -0.35, phase: 0, restAngle: -0.02,
     waveform: 'foldup',
     stabRoll: -1.0, tuckAngle: 0.85,
   });

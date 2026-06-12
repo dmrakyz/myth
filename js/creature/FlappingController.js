@@ -99,9 +99,9 @@ export class FlappingController {
     // and direction. This small CG term only covers the cycle-averaged
     // wake-capture effect the strip model can't see, and trims the climb
     // rate; it is a fraction of its former value.
-    this.flapBoost = 1.35;
-    this.climbRate = 1.0;          // target climb speed for adaptive assist (m/s)
-    this.flapBoostGain = 0.6;      // assist ramps up when vy < climbRate, down when above
+    this.flapBoost = 2.5;
+    this.climbRate = 1.2;          // target climb speed for adaptive assist (m/s)
+    this.flapBoostGain = 1.2;      // assist ramps up when vy < climbRate, down when above
   }
 
   // Register active twist for a Wing (BET strips) or a FeatherArray.
