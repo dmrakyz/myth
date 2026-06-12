@@ -84,7 +84,7 @@ function check(name, cond, detail = '') {
 {
   const up = simulate('PITCH UP', { flapRate: 1.0, pitchUp: 0.5, seconds: 6 });
   const dn = simulate('PITCH DOWN', { flapRate: 1.0, pitchUp: -0.5, seconds: 6 });
-  check('pitch input affects altitude (up > down)', up.finalAlt > dn.finalAlt + 1,
+  check('pitch input affects altitude (up > down)', up.finalAlt > dn.finalAlt + 2,
     `up=${up.finalAlt.toFixed(1)} dn=${dn.finalAlt.toFixed(1)}`);
 }
 

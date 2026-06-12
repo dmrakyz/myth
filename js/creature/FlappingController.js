@@ -22,16 +22,20 @@ export class FlappingController {
     this.globalFrequencyScale = 1;
     this.currentFrequency = 0;   // telemetry for HUD
 
-    // Vestibular reflex gains — birds are aerodynamically unstable and
-    // stabilize actively; without this the airframe tumbles. Signals are
-    // attitude/rate errors of the root body; each muscle pattern declares
-    // how strongly it responds (stabRoll/stabPitch/stabYaw).
+    // Vestibular reflex gains. The airframe is made PASSIVELY stable by the
+    // wing geometry (arm dihedral + drooped hand nets to a stable, slightly
+    // positive effective dihedral — see Bird.js), so these gains are
+    // deliberately GENTLE: they trim slow modes and give control authority,
+    // they do NOT prop up an unstable airframe. High gains here chase the
+    // 3 Hz wingbeat disturbance and turn the reflex itself into the dominant
+    // roll oscillation (measured: rollRMS 1°→27° just by raising them) — the
+    // opposite of stability. Passive stability first, light active trim second.
     this.stabilize = true;
     this.gains = {
-      rollP: 3.2, rollD: 1.1,      // roll angle / roll rate
-      pitchP: 1.2, pitchD: 0.75,   // pitch attitude / filtered pitch rate
-      yawD: 0.4,                   // yaw rate damping
-      yawToRoll: 2.0,              // banks against a steady heading drift (turn coordinator)
+      rollP: 1.6, rollD: 0.35,     // roll angle / roll rate
+      pitchP: 0.9, pitchD: 0.5,    // pitch attitude / filtered pitch rate
+      yawD: 0.3,                   // yaw rate damping
+      yawToRoll: 1.0,              // banks against a steady heading drift (turn coordinator)
       vyDamp: 0.035,               // pitch-setpoint feedback on vertical speed (phugoid damper)
       slipRoll: 0,                 // sideslip velocity → roll correction (tuned per preset)
     };
@@ -61,7 +65,7 @@ export class FlappingController {
     // asymmetrically every beat (one hand folds while the other extends — looks
     // like one wing flapping). The spiral mode it must fight is far slower than
     // the wingbeat, so a ~1.2 Hz filter keeps stability and kills the thrash.
-    this.rollLpf = 9;              // cutoff (rad/s)
+    this.rollLpf = 6;              // cutoff (rad/s)
     this._sRollF = 0;
 
     // Low-pass filter on the raw pitch rate q before the D term. Torso ω
@@ -100,7 +104,7 @@ export class FlappingController {
     // wake-capture effect the strip model can't see, and trims the climb
     // rate; it is a fraction of its former value.
     this.flapBoost = 2.5;
-    this.climbRate = 1.2;          // target climb speed for adaptive assist (m/s)
+    this.climbRate = 2.0;          // target climb speed for adaptive assist (m/s)
     this.flapBoostGain = 1.2;      // assist ramps up when vy < climbRate, down when above
   }
 

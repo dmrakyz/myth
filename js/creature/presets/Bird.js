@@ -275,12 +275,20 @@ export function createBird() {
   // stabRoll on the shoulders: a common-sign offset raises one wing root and
   // lowers the other (hinges mirror), shifting the lift vector — far more roll
   // torque than the wrist fold alone, which saturates in a big departure.
+  // restAngle 0.30 sets the ARM dihedral. Combined with the drooped hand
+  // (wrist restAngle ∓0.6 below) this is the gull's arched wing: humerus
+  // angled up ~17°, hand drooping down. Crucially the net effective dihedral
+  // is slightly POSITIVE, which makes the airframe PASSIVELY ROLL-STABLE
+  // (measured: drooped hand alone diverges to inversion in 5 s with the
+  // stabilizer off; arm dihedral 0.30 holds it to rollRMS 1°). The drooped
+  // hand alone read as an unstable U; arching the arm over it gives both the
+  // silhouette and the stability, so the active reflex stays gentle.
   ctrl.setPattern('flapR', {
-    frequency: FLAP_FREQ, amplitude: 1.2, phase: 0, restAngle: 0.08,
+    frequency: FLAP_FREQ, amplitude: 1.2, phase: 0, restAngle: 0.30,
     waveform: 'downbeat', stabRoll: -0.40, tuckAngle: 0.30, brakeAngle: 0.35,
   });
   ctrl.setPattern('flapL', {
-    frequency: FLAP_FREQ, amplitude: -1.2, phase: 0, restAngle: -0.08,
+    frequency: FLAP_FREQ, amplitude: -1.2, phase: 0, restAngle: -0.30,
     waveform: 'downbeat', stabRoll: -0.40, tuckAngle: -0.30, brakeAngle: -0.35,
   });
   // Wrists ride the same cycle as the shoulders ('foldup' is keyed to the
@@ -289,20 +297,21 @@ export function createBird() {
   // recovery-stroke wing folding. Roll stabilization/steering also lives
   // here: a common-sign offset folds one hand while extending the other
   // (hinge conventions mirror), shifting lift spanwise — how birds bank.
-  // restAngle ∓0.6: the hand droops below the arm — a gull's arched wing.
-  // The drooped outer panel reads beautifully and deepens the power stroke,
-  // but it is ANHEDRAL: it converts sideslip into a rolling moment with the
-  // unstable sign, so it must be paid for with active roll stabilization
-  // (slipRoll + the stiffer roll gains set below).
+  // restAngle ∓0.6: the hand droops below the arm — the gull's arched wing.
+  // Anhedral on its own (destabilizing), but the arm dihedral above more than
+  // cancels it for net stability. stabRoll ∓0.5 gives the wrists enough
+  // asymmetric-droop authority to bank and STEER under power (at 0 the bird
+  // barely turns when flapping); kept modest so the reflex doesn't pump the
+  // droop every wingbeat (∓1.5 oscillated).
   ctrl.setPattern('wristR', {
     frequency: FLAP_FREQ, amplitude: 0.35, phase: 0, restAngle: -0.6,
     waveform: 'foldup',
-    stabRoll: -1.5, tuckAngle: -0.85,
+    stabRoll: -0.5, tuckAngle: -0.85,
   });
   ctrl.setPattern('wristL', {
     frequency: FLAP_FREQ, amplitude: -0.35, phase: 0, restAngle: 0.6,
     waveform: 'foldup',
-    stabRoll: -1.5, tuckAngle: 0.85,
+    stabRoll: -0.5, tuckAngle: 0.85,
   });
   // Pronation/supination through the stroke (see FlappingController.twists).
   // Big-stroke flapping demands big twist: the hand sections see the wind
@@ -311,10 +320,10 @@ export function createBird() {
   // (aHold) so the upstroke carries weight instead of pushing down.
   for (const w of twistWiring) ctrl.addWingTwist(w, { relax: 0.7, max: 0.6, aHold: 0.03 });
   ctrl.twistDecay = 100;
-  // Sideslip → roll correction: pays for the drooped-hand anhedral (see the
-  // wrist patterns above). Senses the spiral departure at the slip stage,
-  // before it has rolled the bird at all.
-  ctrl.gains.slipRoll = 0.90;
+  // Light sideslip → roll trim. The arm dihedral already provides the passive
+  // restoring moment; this just nudges out residual slip. Kept small — high
+  // slip gain over-corrected into a slow powered turn rather than damping it.
+  ctrl.gains.slipRoll = 0.15;
   // Tail: pitch control surface. Negative hinge angle = TE up = downward tail force
   // aft of CG = nose-up moment. So all pitch signals must drive toward negative angles.
   ctrl.setPattern('tailMuscle', {
