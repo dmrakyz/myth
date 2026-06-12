@@ -166,6 +166,18 @@ export class FlappingController {
           ? -0.25 * Math.sin(t / 0.4 * Math.PI)
           : Math.sin((t - 0.4) / 0.6 * Math.PI);
       }
+      case 'downwhip': {
+        // Wrist droop locked to the downstroke only: smooth bell-shaped droop
+        // from zero at the top of the stroke through full negative at mid-
+        // downstroke and back to zero at the bottom. Returns zero on the
+        // upstroke so the muscle spring pulls the wrist back to restAngle
+        // without forcing an extension that pushes against the rising arm.
+        // Residual droop from muscle lag keeps the primaries partially loaded
+        // through the upstroke — the recovery-stroke partial-loading real birds
+        // use to carry weight on both strokes.
+        const t = ((phase / TWO_PI) % 1 + 1) % 1;
+        return t < 0.4 ? -Math.sin(t / 0.4 * Math.PI) : 0;
+      }
       default: return Math.sin(phase);
     }
   }
@@ -187,6 +199,9 @@ export class FlappingController {
     // Reflex stabilization signals from the root body
     let sRoll = 0, sPitch = 0, sYaw = 0;
     const root = this.creature.root;
+    // How strongly the pilot is commanding pitch. Ramps to 1 above 20% stick so
+    // the stabilizer backs off and lets the pilot dive or hard-climb freely.
+    const pilotPitchAuth = clamp(Math.abs(clamp(input.pitchUp, -1, 1)) * 5, 0, 1);
     if (this.stabilize && root) {
       const rb = root.rigidBody;
       Quat.rotateVec(rb.orientation, FWD, fwdW);
@@ -223,9 +238,9 @@ export class FlappingController {
       // nose-UP into the wind and bleeds speed against induced drag + the
       // spread tail — not a raw tail deflection (which noses over and DIVES).
       const ta = clamp(this.takeoffAssist, 0, 1);
-      const trim = this.trimPitch + 0.10 * clamp(input.pitchUp, -1, 1)
+      const trim = this.trimPitch + 0.25 * clamp(input.pitchUp, -1, 1)
         + 0.18 * brake
-        - g.vyDamp * clamp(v.y, -4, 4) * (1 - ta) + 0.06 * ta;
+        - g.vyDamp * clamp(v.y, -4, 4) * (1 - ta) * (1 - pilotPitchAuth) + 0.06 * ta;
       // Yaw rate biases the roll loop so a slow heading drift is met with an
       // opposing bank instead of accumulating into a spiral. Pilot roll input
       // bypasses this (commanded turns shouldn't be fought).
@@ -245,6 +260,7 @@ export class FlappingController {
         - g.slipRoll * clamp(vSide, -3, 3), -0.8, 0.8);
       this._qF += (q - this._qF) * Math.min(1, dt * this.qLpf);
       sPitch = clamp(-g.pitchP * (aoaProxy - trim) - g.pitchD * this._qF, -0.7, 0.7);
+      sPitch *= (1 - pilotPitchAuth);
       sYaw = clamp(-g.yawD * r, -0.5, 0.5);
 
       // Active rudder servo (tail twist): yaw-rate damping + weathercock +
@@ -273,7 +289,13 @@ export class FlappingController {
     // attitude, and applied at the CG so it adds no roll/yaw — no spiral.
     if (this.flapBoost > 0 && flap > 0 && root) {
       const rb = root.rigidBody;
-      if (!this.stabilize) Quat.rotateVec(rb.orientation, FWD, fwdW);
+      if (!this.stabilize) {
+        Quat.rotateVec(rb.orientation, FWD, fwdW);
+        Quat.rotateVec(rb.orientation, UP, upW);
+      }
+      // Zero the assist when inverted — upW.y negative means the bird is upside
+      // down and world-up force would levitate it regardless of orientation.
+      const uprightGate = Math.max(0, upW.y);
       const hx = fwdW.x, hz = fwdW.z;
       const hlen = Math.hypot(hx, hz) || 1;
       const vy = rb.velocity.y;
@@ -286,7 +308,7 @@ export class FlappingController {
       // run away into a backflip.
       const noseGuard = 1 - clamp((fwdW.y - 0.5) / 0.27, 0, 1);
       const f = Math.max(0, this.flapBoost + this.flapBoostGain * clamp(this.climbRate - vy, -3, 3))
-        * flap * burst * noseGuard;
+        * flap * burst * noseGuard * uprightGate;
       // direction = normalize(worldUp + 0.5·heading); ~63% up, ~37% forward
       let dx = 0.5 * hx / hlen, dy = 1.0, dz = 0.5 * hz / hlen;
       const dl = Math.hypot(dx, dy, dz);

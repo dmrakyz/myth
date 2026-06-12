@@ -150,7 +150,7 @@ export function createBird() {
       limits: { min: -0.9, max: 0.9 },
     }), inner.id, outer.id);
     c.addMuscle(`wrist${sideName}`, new Muscle({
-      joint: wrist, stiffness: 6, damping: 0.8, maxTorque: 2, restAngle: 0,
+      joint: wrist, stiffness: 8, damping: 0.8, maxTorque: 4, restAngle: 0,
     }), `wrist${sideName}`);
 
     // Secondaries: cambered BET strips on the inner bone. Strip frames are
@@ -286,10 +286,12 @@ export function createBird() {
   ctrl.setPattern('flapR', {
     frequency: FLAP_FREQ, amplitude: 1.2, phase: 0, restAngle: 0.30,
     waveform: 'downbeat', stabRoll: -0.40, tuckAngle: 0.30, brakeAngle: 0.35,
+    pitchBias: 0.12,
   });
   ctrl.setPattern('flapL', {
     frequency: FLAP_FREQ, amplitude: -1.2, phase: 0, restAngle: -0.30,
     waveform: 'downbeat', stabRoll: -0.40, tuckAngle: -0.30, brakeAngle: -0.35,
+    pitchBias: -0.12,
   });
   // Wrists ride the same cycle as the shoulders ('foldup' is keyed to the
   // downbeat phases): a slight extension whip through the downstroke, then
@@ -303,15 +305,24 @@ export function createBird() {
   // asymmetric-droop authority to bank and STEER under power (at 0 the bird
   // barely turns when flapping); kept modest so the reflex doesn't pump the
   // droop every wingbeat (∓1.5 oscillated).
+  // Wrists use 'downwhip': a bell-shaped droop locked to the downstroke
+  // (peak at mid-downstroke, zero contribution on the upstroke). The wrist
+  // actively pushes down through the power stroke and returns to restAngle
+  // via the stiffer muscle spring during the upstroke — no forced extension
+  // that would push against the rising arm and generate negative lift.
+  // Amplitude 0.28 puts the peak target at -0.88 rad (within the -0.90 limit).
+  // pitchBias folds the wrist tighter during a dive (negative pitchUp), giving
+  // a partial sweep-back — the closest approximation possible with the Z-axis-
+  // only hinge (full backward fold requires an additional sweep DOF).
   ctrl.setPattern('wristR', {
-    frequency: FLAP_FREQ, amplitude: 0.35, phase: 0, restAngle: -0.6,
-    waveform: 'foldup',
-    stabRoll: -0.5, tuckAngle: -0.85,
+    frequency: FLAP_FREQ, amplitude: 0.28, phase: 0, restAngle: -0.6,
+    waveform: 'downwhip',
+    stabRoll: -0.5, tuckAngle: -0.85, pitchBias: 0.15,
   });
   ctrl.setPattern('wristL', {
-    frequency: FLAP_FREQ, amplitude: -0.35, phase: 0, restAngle: 0.6,
-    waveform: 'foldup',
-    stabRoll: -0.5, tuckAngle: 0.85,
+    frequency: FLAP_FREQ, amplitude: -0.28, phase: 0, restAngle: 0.6,
+    waveform: 'downwhip',
+    stabRoll: -0.5, tuckAngle: 0.85, pitchBias: -0.15,
   });
   // Pronation/supination through the stroke (see FlappingController.twists).
   // Big-stroke flapping demands big twist: the hand sections see the wind
@@ -328,7 +339,7 @@ export function createBird() {
   // aft of CG = nose-up moment. So all pitch signals must drive toward negative angles.
   ctrl.setPattern('tailMuscle', {
     frequency: 0, amplitude: 0, restAngle: -0.04,
-    pitchBias: -0.4,
+    pitchBias: -0.5,
     flapScale: 0,
     stabPitch: -1.5,
   });
