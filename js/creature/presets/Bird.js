@@ -275,10 +275,12 @@ export function createBird() {
 
   // --- Flapping controller ---
   const ctrl = new FlappingController(c);
-  // Medium/large-bird wingbeat: strong and slow (~3 Hz at full power, like a
-  // gull or crow). Low frequency + larger amplitude reads as a real flap and
-  // lets the overdamped muscle reach a wide stroke instead of a fast buzz.
-  const FLAP_FREQ = 3.0;   // gull wingbeat
+  // Crow/gull-scale wingbeat. 3.8 Hz at full power: enough cycle-averaged
+  // thrust to nearly sustain level powered flight on BET alone (the bird is
+  // power-limited for positive climb — that headroom comes later from active
+  // camber, not a faster buzz). Larger amplitude reads as a real flap and lets
+  // the overdamped muscle reach a wide stroke.
+  const FLAP_FREQ = 3.8;
   // Hinge sign convention: +rotation about z lifts the RIGHT wing and lowers
   // the LEFT, so the left pattern is amplitude-negated for symmetric flapping.
   // Amplitude 1.5 rad commands a large stroke envelope — the deeper stroke is

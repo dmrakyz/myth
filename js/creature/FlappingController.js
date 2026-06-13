@@ -211,9 +211,15 @@ export class FlappingController {
     // Reflex stabilization signals from the root body
     let sRoll = 0, sPitch = 0, sYaw = 0;
     const root = this.creature.root;
-    // How strongly the pilot is commanding pitch. Ramps to 1 above 20% stick so
-    // the stabilizer backs off and lets the pilot dive or hard-climb freely.
-    const pilotPitchAuth = clamp(Math.abs(clamp(input.pitchUp, -1, 1)) * 3, 0, 1);
+    // How strongly the pilot is commanding pitch. Dive (nose-down) gets full
+    // authority so the bird can drop freely; climb (nose-up) stays AoA-managed
+    // — the stabilizer keeps regulating, just to a higher setpoint — so a climb
+    // command raises the angle of attack toward (not past) stall and the bird
+    // climbs as fast as its thrust allows instead of mushing into a stall.
+    const pitchCmd = clamp(input.pitchUp, -1, 1);
+    const climbCmd = Math.max(0, pitchCmd);
+    const diveCmd = Math.max(0, -pitchCmd);
+    const pilotPitchAuth = clamp(diveCmd * 3, 0, 1);
     if (this.stabilize && root) {
       const rb = root.rigidBody;
       Quat.rotateVec(rb.orientation, FWD, fwdW);
@@ -249,10 +255,14 @@ export class FlappingController {
       // Brake = a landing flare: raise the AoA setpoint so the bird pitches
       // nose-UP into the wind and bleeds speed against induced drag + the
       // spread tail — not a raw tail deflection (which noses over and DIVES).
+      // Climb raises the AoA setpoint (capped below stall); dive lowers it. The
+      // phugoid damper (vyDamp) is suppressed while climbing so it doesn't nose
+      // the bird back over the moment it starts to gain height.
       const ta = clamp(this.takeoffAssist, 0, 1);
-      const trim = this.trimPitch + 0.25 * clamp(input.pitchUp, -1, 1)
+      const trim = this.trimPitch + 0.16 * climbCmd - 0.30 * diveCmd
         + 0.18 * brake
-        - g.vyDamp * clamp(v.y, -4, 4) * (1 - ta) * (1 - pilotPitchAuth) + 0.06 * ta;
+        - g.vyDamp * clamp(v.y, -4, 4) * (1 - ta) * (1 - pilotPitchAuth) * (1 - climbCmd)
+        + 0.06 * ta;
       // Yaw rate biases the roll loop so a slow heading drift is met with an
       // opposing bank instead of accumulating into a spiral. Pilot roll input
       // bypasses this (commanded turns shouldn't be fought).
