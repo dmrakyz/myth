@@ -87,7 +87,10 @@ function makeStripMesh(strip, wingName = '') {
 
 function makeFeatherMesh(feather, index = 0, total = 1) {
   const s = feather.surface;
-  const geo = new THREE.PlaneGeometry(s.chord, s.span);
+  // Render the vane wider than the aerodynamic chord so the swept primaries
+  // overlap into a continuous surface (real flight feathers shingle ~50%)
+  // instead of a thin gappy rake. Visual only — the BET chord is unchanged.
+  const geo = new THREE.PlaneGeometry(s.chord * 1.6, s.span);
   // Inner primaries darker/warmer, outer primaries lighter/cooler
   const t = index / Math.max(total - 1, 1);
   const color = new THREE.Color(0xc8b890).lerp(new THREE.Color(0xf0ece4), t);

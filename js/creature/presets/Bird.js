@@ -441,6 +441,20 @@ export function createBird() {
         chord: 0.04, span: 0.038, pitch: 0.08, color: 0x83735e,
       });
     }
+    // Inner-hand / carpal fill: aft-pointing feathers bridging the wrist gap
+    // between the arm's secondaries and the swept primaries, so the trailing
+    // edge is continuous from body to tip (no bare wedge behind the wrist).
+    // Visual only — the BET primaries already carry this span's lift.
+    for (let i = 0; i < 7; i++) {
+      const t = i / 6;
+      const x = side * (-0.085 + i * 0.024);
+      c.visualFeathers.push({
+        segId: hand.id, localPos: new Vec3(x, -0.001, 0.03),
+        chord: 0.13 - t * 0.02, span: 0.040,
+        pitch: 0.11, yaw: side * (0.10 + t * 0.30),
+        color: i % 2 ? 0xb0a488 : 0xbcb094,
+      });
+    }
   }
 
   // Tail fan (visual): individual rectrices that fan out with tailSpread.
