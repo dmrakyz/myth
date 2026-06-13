@@ -71,8 +71,10 @@ export function createBird() {
     axisA: new Vec3(1, 0, 0), axisB: new Vec3(1, 0, 0),
     limits: { min: -0.6, max: 0.6 },
   }), torso.id, tail.id);
+  // maxTorque raised 2.5→3.5: the shoulder now produces up to 12 N·m of pitch
+  // reaction; the tail needs more authority to damp it within one beat.
   c.addMuscle('tailMuscle', new Muscle({
-    joint: tailJoint, stiffness: 22, damping: 3.0, maxTorque: 2.5, restAngle: 0,
+    joint: tailJoint, stiffness: 22, damping: 3.0, maxTorque: 3.5, restAngle: 0,
   }), 'tailJoint');
   const tailSurfaceStrip = new FluidSurface({
     bodyPoint: new Vec3(0, 0, 0.01),
@@ -302,12 +304,15 @@ export function createBird() {
   // stabilizer off; arm dihedral 0.30 holds it to rollRMS 1°). The drooped
   // hand alone read as an unstable U; arching the arm over it gives both the
   // silhouette and the stability, so the active reflex stays gentle.
+  // Amplitude 1.1 rad commanded → ~0.75 rad actual per half-stroke at terminal
+  // velocity (maxTorque/c = 8 rad/s, half-period 0.13 s) → ~85° total arc,
+  // matching a real gull (70–80°). Previous 1.5 produced 115° — too large.
   ctrl.setPattern('flapR', {
-    frequency: FLAP_FREQ, amplitude: 1.5, phase: 0, restAngle: 0.30,
+    frequency: FLAP_FREQ, amplitude: 1.1, phase: 0, restAngle: 0.30,
     waveform: 'downbeat', stabRoll: -0.40, tuckAngle: 0.30, brakeAngle: 0.35,
   });
   ctrl.setPattern('flapL', {
-    frequency: FLAP_FREQ, amplitude: -1.5, phase: 0, restAngle: -0.30,
+    frequency: FLAP_FREQ, amplitude: -1.1, phase: 0, restAngle: -0.30,
     waveform: 'downbeat', stabRoll: -0.40, tuckAngle: -0.30, brakeAngle: -0.35,
   });
   // Wrists: extend flat on the downstroke, fold on the upstroke — real bird
@@ -355,7 +360,9 @@ export function createBird() {
   // yaw-stick authority on the vertical fin strip.
   // Gains sized for the fin's 3D-corrected (halved) lift slope: the servo
   // deflects roughly twice as far for the same weathercock force.
-  ctrl.setRudder(tailFinStrip, { yawGain: 0.9, slipGain: 0.08, cmdGain: 0.55, max: 0.45 });
+  // Higher yawGain (0.9→1.4) + slipGain (0.08→0.14) to actively kill heading drift
+  // before yawToRoll (now 0.4) can wind it into a spiral.
+  ctrl.setRudder(tailFinStrip, { yawGain: 1.4, slipGain: 0.14, cmdGain: 0.55, max: 0.45 });
   // Active tail fan: spreading grows the physical tail area (flare/brake)
   ctrl.setTailFan(tailSurfaceStrip, { gain: 0.8 });
   c.flappingController = ctrl;

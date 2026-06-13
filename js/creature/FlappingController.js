@@ -32,9 +32,9 @@ export class FlappingController {
     this.stabilize = true;
     this.gains = {
       rollP: 1.6, rollD: 0.35,     // roll angle / roll rate
-      pitchP: 0.9, pitchD: 0.5,    // pitch attitude / filtered pitch rate
-      yawD: 0.3,                   // yaw rate damping
-      yawToRoll: 1.0,              // banks against a steady heading drift (turn coordinator)
+      pitchP: 0.9, pitchD: 0.8,    // pitch attitude / filtered pitch rate
+      yawD: 0.55,                  // yaw rate damping
+      yawToRoll: 0.4,              // banks against a steady heading drift (reduced: 1.0 spirals)
       vyDamp: 0.035,               // pitch-setpoint feedback on vertical speed (phugoid damper)
       slipRoll: 0,                 // sideslip velocity → roll correction (tuned per preset)
     };
