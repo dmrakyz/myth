@@ -144,10 +144,12 @@ export function createBird() {
       axisA: new Vec3(0, 0, 1), axisB: new Vec3(0, 0, 1),
       limits: { min: -1.2, max: 1.2 },
     }), torso.id, inner.id);
-    // Powerful downstroke (maxTorque 7 — the pectoralis), high damping 4.0 for
-    // the viscoelastic shoulder that absorbs the wingbeat pitch reaction.
+    // Pectoralis muscle: maxTorque 12 N·m, damping 1.5. Lower damping lets the
+    // shoulder actually complete its stroke (terminal velocity = maxTorque/c =
+    // 8 rad/s, ~1 rad per half-stroke at 3.8 Hz). The pitch reaction torque is
+    // handled by the tail stabPitch (-2.2) + AoA stabilizer, not shoulder damping.
     c.addMuscle(`flap${sideName}`, new Muscle({
-      joint: shoulder, stiffness: 40, damping: 4.0, maxTorque: 7, restAngle: 0,
+      joint: shoulder, stiffness: 40, damping: 1.5, maxTorque: 12, restAngle: 0,
     }), `shoulder${sideName}`);
 
     // Wrist hinge
@@ -308,35 +310,26 @@ export function createBird() {
     frequency: FLAP_FREQ, amplitude: -1.5, phase: 0, restAngle: -0.30,
     waveform: 'downbeat', stabRoll: -0.40, tuckAngle: -0.30, brakeAngle: -0.35,
   });
-  // Wrists ride the same cycle as the shoulders ('foldup' is keyed to the
-  // downbeat phases): a slight extension whip through the downstroke, then
-  // the hand folds in through the upstroke to cut negative lift — real
-  // recovery-stroke wing folding. Roll stabilization/steering also lives
-  // here: a common-sign offset folds one hand while extending the other
-  // (hinge conventions mirror), shifting lift spanwise — how birds bank.
-  // restAngle ∓0.6: the hand droops below the arm — the gull's arched wing.
-  // Anhedral on its own (destabilizing), but the arm dihedral above more than
-  // cancels it for net stability. stabRoll ∓0.5 gives the wrists enough
-  // asymmetric-droop authority to bank and STEER under power (at 0 the bird
-  // barely turns when flapping); kept modest so the reflex doesn't pump the
-  // droop every wingbeat (∓1.5 oscillated).
-  // Wrists use 'downwhip': a bell-shaped droop locked to the downstroke
-  // (peak at mid-downstroke, zero contribution on the upstroke). The wrist
-  // actively pushes down through the power stroke and returns to restAngle
-  // via the stiffer muscle spring during the upstroke — no forced extension
-  // that would push against the rising arm and generate negative lift.
-  // Amplitude 0.28 puts the peak target at -0.88 rad (within the -0.90 limit).
-  // The wing folds for standing/landing via the tuckAngle blend; there is no
-  // fore-aft sweep DOF, so the grounded fold is completed visually in the
-  // renderer (a pose, not a force — see CreatureRenderer._computeFold).
+  // Wrists: extend flat on the downstroke, fold on the upstroke — real bird
+  // kinematics. 'upwhip' is a bell-shaped positive pulse locked to the power
+  // stroke (t < 0.4 in the downbeat cycle): the wrist pivots from its folded
+  // restAngle toward neutral (flat), maximising wing area for the BET strips
+  // through the whole downstroke. On the upstroke the waveform returns to zero
+  // and the spring pulls the hand back to the folded restAngle, shortening the
+  // wing on recovery to cut negative lift.
+  // restAngle ∓0.6: gull's arched wing — hand drooped below arm. Combined with
+  // arm dihedral 0.30 (above) this gives net positive effective dihedral.
+  // amplitude ±0.50 puts the peak target at -0.10/+0.10 rad (nearly flat) on
+  // the downstroke — close to the ∓0.90 limit on extension, good headroom.
+  // stabRoll −0.32 gives roll/bank authority via asymmetric wrist extension.
   ctrl.setPattern('wristR', {
-    frequency: FLAP_FREQ, amplitude: 0.28, phase: 0, restAngle: -0.6,
-    waveform: 'downwhip',
+    frequency: FLAP_FREQ, amplitude: 0.50, phase: 0, restAngle: -0.6,
+    waveform: 'upwhip',
     stabRoll: -0.32, tuckAngle: -0.85,
   });
   ctrl.setPattern('wristL', {
-    frequency: FLAP_FREQ, amplitude: -0.28, phase: 0, restAngle: 0.6,
-    waveform: 'downwhip',
+    frequency: FLAP_FREQ, amplitude: -0.50, phase: 0, restAngle: 0.6,
+    waveform: 'upwhip',
     stabRoll: -0.32, tuckAngle: 0.85,
   });
   // Pronation/supination through the stroke (see FlappingController.twists).

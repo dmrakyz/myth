@@ -190,6 +190,16 @@ export class FlappingController {
         const t = ((phase / TWO_PI) % 1 + 1) % 1;
         return t < 0.4 ? -Math.sin(t / 0.4 * Math.PI) : 0;
       }
+      case 'upwhip': {
+        // Wrist EXTENDS flat on the downstroke: bell-shaped POSITIVE pulse
+        // during the power stroke (t < 0.4) so the wrist moves toward neutral
+        // (maximum wing area through the downstroke), then returns to zero
+        // on the upstroke and the spring pulls it back to the folded restAngle.
+        // This is the correct bird kinematics: hand opens fully during the
+        // downstroke for maximum BET area and folds on recovery to cut drag.
+        const t = ((phase / TWO_PI) % 1 + 1) % 1;
+        return t < 0.4 ? Math.sin(t / 0.4 * Math.PI) : 0;
+      }
       default: return Math.sin(phase);
     }
   }
