@@ -44,6 +44,7 @@ export class WingMembrane {
     this.cloth = new ClothBody(cols * rows);
     this.pins = pins;
     this.lastTotalForce = 0;
+    this.lastLiftY = 0;
 
     for (let i = 0; i < cols * rows; i++) {
       const p = initialPositions[i];
@@ -123,7 +124,7 @@ export class WingMembrane {
   }
 
   computeForces(medium, dt) {
-    let total = 0;
+    let total = 0, liftY = 0;
     for (let r = 0; r < this.rows; r++) {
       for (let c = 0; c < this.cols; c++) {
         const i = r * this.cols + c;
@@ -149,17 +150,33 @@ export class WingMembrane {
           const scale = forceLimitScale(target, pPos, f, Vec3.len(relV), dt);
           if (scale < 1) Vec3.scale(f, scale, f);
           target.applyForce(f, pPos);
+          liftY += f.y;
         }
 
         total += Math.abs(mag);
       }
     }
     this.lastTotalForce = total;
+    this.lastLiftY = liftY;   // net vertical aero load on the skeleton (HUD)
     return total;
   }
 
   solve(dt) {
     this.cloth.solve(dt, 4);
+  }
+
+  // Relax the cloth into a static rest drape against the current (frozen) bone
+  // pose — used by the builder scene so the membrane shows its shape without a
+  // full flight sim. Pins snap to the bones; gravity-free constraint solves
+  // pull the free particles back into the grid shape from wherever they were.
+  settle(iterations = 24) {
+    const vel = this.cloth.vel;
+    vel.fill(0);
+    const savedG = this.cloth.gravity;
+    this.cloth.gravity = 0;          // no droop — hold the designed airfoil shape
+    for (let k = 0; k < iterations; k++) this.cloth.solve(1 / 60, 2);
+    this.cloth.gravity = savedG;
+    vel.fill(0);
   }
 
   // Seed every free particle's velocity (e.g. when the creature is launched).

@@ -342,6 +342,7 @@ kbd {
   min-width: 40px;
   text-align: right;
 }
+.hud-value.hud-bad { color: var(--danger); }
 .hud-unit {
   font-size: 9px;
   color: var(--text-dim);

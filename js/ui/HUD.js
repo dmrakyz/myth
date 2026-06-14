@@ -9,6 +9,7 @@ export class HUD {
   constructor() {
     this._speed = document.getElementById('hud-speed');
     this._alt   = document.getElementById('hud-alt');
+    this._glide = document.getElementById('hud-glide');
     this._aoa   = document.getElementById('hud-aoa');
     this._flap  = document.getElementById('hud-flap');
     this._lift  = document.getElementById('hud-lift');
@@ -31,6 +32,22 @@ export class HUD {
     const waterLevel = world.waterSurface?.level ?? -10;
     const alt = c.y - waterLevel;
     if (this._alt) this._alt.textContent = alt.toFixed(1);
+
+    // Glide ratio = horizontal distance covered per unit of altitude lost
+    // (L/D in steady glide). Only meaningful while descending; climbing or
+    // level flight shows ∞.
+    if (this._glide) {
+      const horiz = Math.hypot(v.x, v.z);
+      const sink = -v.y;
+      if (sink > 0.15 && horiz > 0.3) {
+        const ratio = horiz / sink;
+        this._glide.textContent = ratio.toFixed(1);
+        this._glide.classList.toggle('hud-bad', ratio < 2);
+      } else {
+        this._glide.textContent = '∞';
+        this._glide.classList.remove('hud-bad');
+      }
+    }
 
     // AoA — mean wing strip alpha
     let aoa = 0, nStrips = 0;
@@ -64,6 +81,9 @@ export class HUD {
     for (const fa of creature.featherArrays.values()) {
       for (const f of fa.feathers) lift += f.surface.lastForce.y;
     }
+    // Membrane wings (bat/dragon) feed their vertical aero load straight onto
+    // the skeleton — count it so the bat's lift readout isn't stuck at zero.
+    for (const m of creature.membranes.values()) lift += m.lastLiftY ?? 0;
     if (this._lift) this._lift.textContent = lift.toFixed(1);
 
     // Medium indicator

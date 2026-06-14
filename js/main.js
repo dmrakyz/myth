@@ -8,6 +8,7 @@ import { PhysicsWorld } from './physics/PhysicsWorld.js';
 import { Vec3 } from './math/Vec3.js';
 import { Renderer } from './renderer/Renderer.js';
 import { CreatureRenderer } from './renderer/CreatureRenderer.js';
+import { BuilderScene } from './renderer/BuilderScene.js';
 import { KeyboardControls } from './controls/KeyboardControls.js';
 import { VirtualJoystick } from './controls/VirtualJoystick.js';
 import { HUD } from './ui/HUD.js';
@@ -59,7 +60,7 @@ function hideLoading() {
 }
 
 // ── Global state ────────────────────────────────────────────────────────────
-let world, bird, renderer, creatureRenderer, hud, attitude, terrain, builder;
+let world, bird, renderer, creatureRenderer, hud, attitude, terrain, builder, builderScene;
 let keyboard, joystickL, joystickR;
 let simMode = false;  // false = build view, true = simulate
 let autoFlap = true;  // sustained flapping toggle (FLAP button)
@@ -105,6 +106,7 @@ async function boot() {
 
     renderer = new Renderer(document.getElementById('canvas-container'), water, terrain);
     creatureRenderer = new CreatureRenderer(renderer.scene, bird);
+    builderScene = new BuilderScene(renderer.renderer);
 
     hud = new HUD();
     attitude = new AttitudeIndicator('attitude');
@@ -117,7 +119,14 @@ async function boot() {
 
     builder = new Builder({
       getCreature: () => bird,
-      getRenderer: () => creatureRenderer,
+      // Edits in build mode must hit the studio's creature renderer; in flight
+      // they'd hit the world renderer. Route to whichever is on screen.
+      getRenderer: () => (simMode ? creatureRenderer : builderScene.creatureRenderer),
+      // After a structural edit, re-relax membranes against the moved bones so
+      // the wing surface tracks the change in the studio.
+      onStructureChange: () => {
+        if (!simMode && bird) for (const m of bird.membranes.values()) m.settle?.();
+      },
     });
     builder.setToast(showToast);
 
@@ -167,14 +176,13 @@ function raf() {
     attitude?.update(bird);
     creatureRenderer.update(world.lerpAlpha);
     renderer.followTarget(bird);
-  } else if (bird && creatureRenderer && renderer) {
-    // Build view: hold the creature in its rest pose (no physics step) and let
-    // the orbit camera frame it so the builder can inspect/edit it live.
-    creatureRenderer.update(1);
-    renderer.followTarget(bird);
+    renderer.render();
+  } else if (builderScene?.active) {
+    // Dedicated build scene: a separate studio environment with its own camera
+    // and lighting. No flight world rendered here at all.
+    builderScene.update(dt);
+    builderScene.render();
   }
-
-  renderer.render();
 }
 
 function clamp01(v) { return Math.max(0, Math.min(1, v)); }
@@ -185,6 +193,9 @@ const FLIGHT_SHOW_IDS = ['hud', 'attitude', 'joystick-left', 'joystick-right', '
 
 function enterSimMode() {
   simMode = true;
+  if (builderScene) builderScene.active = false;
+  // Rebuild the flight meshes from the (possibly edited) creature before flying.
+  creatureRenderer.init(bird);
   document.getElementById('build-scene').classList.add('hidden');
   document.getElementById('top-bar').classList.remove('hidden');
   FLIGHT_SHOW_IDS.forEach(id => document.getElementById(id)?.classList.remove('hidden'));
@@ -192,10 +203,16 @@ function enterSimMode() {
 
 function enterBuildMode() {
   simMode = false;
+  // Park the creature in a still rest pose at the studio origin, then hand it
+  // to the dedicated build scene (its own environment, camera and lighting).
   if (bird) {
-    bird.placeAt(0, 5, 0);
+    bird.placeAt(0, 0, 0);
     bird.setVelocity(0, 0, 0);
     if (bird.flappingController) bird.flappingController.tuck = 0;
+  }
+  if (builderScene) {
+    builderScene.active = true;
+    builderScene.setCreature(bird);
   }
   builder?.refresh();
   document.getElementById('top-bar').classList.add('hidden');
@@ -287,11 +304,18 @@ function wireUI() {
       ]).then(([mod, { GroundController }]) => {
         if (bird) world.removeCreature(bird);
         bird = mod[factoryName]();
-        bird.placeAt(0, 30, 0);
-        bird.setVelocity(0, 0, -8);
         bird.groundController = new GroundController(bird, terrain);
         world.addCreature(bird);
-        creatureRenderer.init(bird);
+        if (simMode) {
+          bird.placeAt(0, 30, 0);
+          bird.setVelocity(0, 0, -8);
+          creatureRenderer.init(bird);
+        } else {
+          // Loaded while building → park it in the studio.
+          bird.placeAt(0, 0, 0);
+          bird.setVelocity(0, 0, 0);
+          builderScene?.setCreature(bird);
+        }
         builder?.refresh();
         document.getElementById('creature-panel').classList.add('hidden');
         showToast(`${label} loaded`);

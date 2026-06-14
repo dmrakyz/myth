@@ -78,7 +78,7 @@
   flex-shrink: 0;
 }
 
-/* Left props panel: overlays left side, canvas visible to the right */
+/* Left props panel: overlays left side, studio visible to the right */
 #build-props-panel {
   position: absolute;
   left: 0;
@@ -92,6 +92,22 @@
   pointer-events: all;
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+}
+
+/* On phones the sidebar would swallow the viewport — dock it as a bottom
+   sheet so the creature studio owns the upper half of the screen. */
+@media (max-width: 720px) {
+  #build-props-panel {
+    left: 0;
+    right: 0;
+    top: auto;
+    bottom: 0;
+    width: auto;
+    max-height: 46vh;
+    border-right: none;
+    border-top: 1px solid var(--panel-border);
+    border-radius: 14px 14px 0 0;
+  }
 }
 
 /* ── Builder UI components ─────────────────────────────────────────── */
