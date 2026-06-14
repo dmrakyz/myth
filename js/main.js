@@ -181,49 +181,36 @@ function clamp01(v) { return Math.max(0, Math.min(1, v)); }
 function clampAxis(v) { return Math.max(-1, Math.min(1, v)); }
 
 // ── UI wiring ───────────────────────────────────────────────────────────────
+const FLIGHT_SHOW_IDS = ['hud', 'attitude', 'joystick-left', 'joystick-right', 'flap-btn', 'land-btn'];
+
 function enterSimMode() {
   simMode = true;
-  document.getElementById('hud').classList.remove('hidden');
-  document.getElementById('attitude')?.classList.remove('hidden');
-  document.getElementById('joystick-left').classList.remove('hidden');
-  document.getElementById('joystick-right').classList.remove('hidden');
-  document.getElementById('flap-btn')?.classList.remove('hidden');
-  document.getElementById('land-btn')?.classList.remove('hidden');
-  document.getElementById('launch-btn').classList.add('hidden');
-  const btn = document.getElementById('mode-toggle');
-  if (btn) {
-    btn.innerHTML = '<svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg><span>Build</span>';
-    btn.classList.add('active');
-  }
+  document.getElementById('build-scene').classList.add('hidden');
+  document.getElementById('top-bar').classList.remove('hidden');
+  FLIGHT_SHOW_IDS.forEach(id => document.getElementById(id)?.classList.remove('hidden'));
 }
 
 function enterBuildMode() {
   simMode = false;
-  // Park the creature in a still rest pose so it can be inspected/edited.
   if (bird) {
-    bird.placeAt(0, 30, 0);
+    bird.placeAt(0, 5, 0);
     bird.setVelocity(0, 0, 0);
     if (bird.flappingController) bird.flappingController.tuck = 0;
   }
   builder?.refresh();
-  document.getElementById('hud').classList.add('hidden');
-  document.getElementById('attitude')?.classList.add('hidden');
-  document.getElementById('joystick-left').classList.add('hidden');
-  document.getElementById('joystick-right').classList.add('hidden');
-  document.getElementById('flap-btn')?.classList.add('hidden');
-  document.getElementById('land-btn')?.classList.add('hidden');
-  document.getElementById('launch-btn').classList.remove('hidden');
-  const btn = document.getElementById('mode-toggle');
-  if (btn) {
-    btn.innerHTML = '<svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12l9-9 9 9M5 10v9a1 1 0 001 1h4v-5h4v5h4a1 1 0 001-1v-9"/></svg><span>Simulate</span>';
-    btn.classList.remove('active');
-  }
+  document.getElementById('top-bar').classList.add('hidden');
+  FLIGHT_SHOW_IDS.forEach(id => document.getElementById(id)?.classList.add('hidden'));
+  document.getElementById('build-scene').classList.remove('hidden');
 }
 
 function wireUI() {
-  // Mode toggle
-  document.getElementById('mode-toggle')?.addEventListener('click', () => {
-    simMode ? enterBuildMode() : enterSimMode();
+  // Flight nav: Build button → enter build scene
+  document.getElementById('mode-toggle')?.addEventListener('click', () => enterBuildMode());
+
+  // Build scene: Fly button → reset creature and return to flight
+  document.getElementById('build-fly-btn')?.addEventListener('click', () => {
+    if (bird) { bird.placeAt(0, 30, 0); bird.setVelocity(0, 0, -8); world.input.flapRate = 1; }
+    enterSimMode();
   });
 
   // Flap toggle
@@ -239,16 +226,6 @@ function wireUI() {
     showToast(landMode ? 'LAND mode — right stick: brake' : 'FLY mode — right stick: flap');
   });
 
-  // Launch button
-  document.getElementById('launch-btn')?.addEventListener('click', () => {
-    if (bird) {
-      bird.placeAt(0, 30, 0);
-      bird.setVelocity(0, 0, -8);
-      world.input.flapRate = 1;
-    }
-    enterSimMode();
-  });
-
   // Reset
   document.getElementById('reset-btn')?.addEventListener('click', () => {
     if (bird) {
@@ -258,11 +235,10 @@ function wireUI() {
     }
   });
 
-  // Panel toggles
+  // Panel toggles (flight-mode info panels only)
   const panelMap = {
     'creature-btn': 'creature-panel',
     'physics-btn':  'physics-panel',
-    'debug-btn':    'builder-panel',
   };
   for (const [btnId, panelId] of Object.entries(panelMap)) {
     document.getElementById(btnId)?.addEventListener('click', () => {
@@ -274,7 +250,6 @@ function wireUI() {
       if (!isOpen) {
         panel.classList.remove('hidden');
         document.getElementById(btnId).classList.add('active');
-        if (panelId === 'builder-panel') builder?.refresh();
       }
     });
   }

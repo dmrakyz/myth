@@ -106,7 +106,9 @@ export class ClothBody {
         pos[j3] -= dx * w2; pos[j3 + 1] -= dy * w2; pos[j3 + 2] -= dz * w2;
       }
 
-      // Velocity update
+      // Velocity update — 0.92 damping per substep kills cloth oscillations
+      // quickly (~96% reduction per flap period) while leaving the wing skin
+      // responsive enough to transmit aerodynamic forces cleanly.
       const invH = 1 / h;
       for (let i = 0; i < n; i++) {
         if (invMass[i] === 0) continue;
@@ -114,8 +116,7 @@ export class ClothBody {
         vel[i3] = (pos[i3] - prev[i3]) * invH;
         vel[i3 + 1] = (pos[i3 + 1] - prev[i3 + 1]) * invH;
         vel[i3 + 2] = (pos[i3 + 2] - prev[i3 + 2]) * invH;
-        // Mild velocity damping for stability
-        vel[i3] *= 0.999; vel[i3 + 1] *= 0.999; vel[i3 + 2] *= 0.999;
+        vel[i3] *= 0.92; vel[i3 + 1] *= 0.92; vel[i3 + 2] *= 0.92;
       }
     }
 

@@ -205,7 +205,8 @@ export function createBat() {
           // Ring-finger spar: inboard cols to arm, outboard to f4
           addPin(col < WRIST_COL ? arm : f4, col, r, p);
         }
-        // rows 3-4 (and col > 0) are free — no pin added
+        // rows 3-4 (col > 0): free cloth that billows between the spars;
+        // ClothBody's 0.92 per-substep damping suppresses oscillation.
       }
     }
 
