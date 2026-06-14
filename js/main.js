@@ -274,24 +274,31 @@ function wireUI() {
   document.querySelectorAll('.preset-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const preset = btn.dataset.preset;
-      if (preset !== 'bird') {
-        showToast(`${preset.charAt(0).toUpperCase() + preset.slice(1)} preset coming soon!`);
+      const label = preset.charAt(0).toUpperCase() + preset.slice(1);
+      // Map preset id → its module path and factory export name.
+      const presetModules = {
+        bird: ['./creature/presets/Bird.js', 'createBird'],
+        bat:  ['./creature/presets/Bat.js', 'createBat'],
+      };
+      const entry = presetModules[preset];
+      if (!entry) {
+        showToast(`${label} preset coming soon!`);
         return;
       }
-      // Reload bird
+      const [modPath, factoryName] = entry;
       Promise.all([
-        import('./creature/presets/Bird.js'),
+        import(modPath),
         import('./creature/GroundController.js'),
-      ]).then(([{ createBird }, { GroundController }]) => {
+      ]).then(([mod, { GroundController }]) => {
         if (bird) world.removeCreature(bird);
-        bird = createBird();
+        bird = mod[factoryName]();
         bird.placeAt(0, 30, 0);
         bird.setVelocity(0, 0, -8);
         bird.groundController = new GroundController(bird, terrain);
         world.addCreature(bird);
         creatureRenderer.init(bird);
         document.getElementById('creature-panel').classList.add('hidden');
-        showToast('Bird loaded');
+        showToast(`${label} loaded`);
       }).catch(err => logErr(err.message, err.stack));
     });
   });

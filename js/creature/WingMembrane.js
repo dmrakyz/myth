@@ -34,9 +34,11 @@ export class WingMembrane {
     areaPerParticle = null,
     compliance = 2e-5,     // membrane stretch compliance (skin is stretchy)
     particleMass = 0.004,
+    color = 0x6b4a3a,      // leathery skin tone (renderer reads this)
   }) {
     this.id = `mem_${nextMembraneId++}`;
     this.name = name;
+    this.color = color;
     this.cols = cols;
     this.rows = rows;
     this.cloth = new ClothBody(cols * rows);
@@ -158,5 +160,16 @@ export class WingMembrane {
 
   solve(dt) {
     this.cloth.solve(dt, 4);
+  }
+
+  // Seed every free particle's velocity (e.g. when the creature is launched).
+  // Without this the cloth starts at rest while the skeleton moves, so the
+  // pins snap the membrane on the first frame and spike force into the bones.
+  setUniformVelocity(vx, vy, vz) {
+    const vel = this.cloth.vel, inv = this.cloth.invMass;
+    for (let i = 0; i < this.cloth.count; i++) {
+      if (inv[i] === 0) continue;
+      vel[i * 3] = vx; vel[i * 3 + 1] = vy; vel[i * 3 + 2] = vz;
+    }
   }
 }
