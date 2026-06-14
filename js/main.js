@@ -12,6 +12,7 @@ import { KeyboardControls } from './controls/KeyboardControls.js';
 import { VirtualJoystick } from './controls/VirtualJoystick.js';
 import { HUD } from './ui/HUD.js';
 import { AttitudeIndicator } from './ui/AttitudeIndicator.js';
+import { Builder } from './ui/Builder.js';
 
 // ── On-screen error log ────────────────────────────────────────────────────
 const errPanel = document.createElement('div');
@@ -58,7 +59,7 @@ function hideLoading() {
 }
 
 // ── Global state ────────────────────────────────────────────────────────────
-let world, bird, renderer, creatureRenderer, hud, attitude, terrain;
+let world, bird, renderer, creatureRenderer, hud, attitude, terrain, builder;
 let keyboard, joystickL, joystickR;
 let simMode = false;  // false = build view, true = simulate
 let autoFlap = true;  // sustained flapping toggle (FLAP button)
@@ -114,6 +115,12 @@ async function boot() {
     joystickL = new VirtualJoystick('joystick-left', 'PITCH · ROLL');
     joystickR = new VirtualJoystick('joystick-right', 'YAW · FLAP');
 
+    builder = new Builder({
+      getCreature: () => bird,
+      getRenderer: () => creatureRenderer,
+    });
+    builder.setToast(showToast);
+
     setProgress(100, 'Ready');
     wireUI();
     enterSimMode();
@@ -160,6 +167,11 @@ function raf() {
     attitude?.update(bird);
     creatureRenderer.update(world.lerpAlpha);
     renderer.followTarget(bird);
+  } else if (bird && creatureRenderer && renderer) {
+    // Build view: hold the creature in its rest pose (no physics step) and let
+    // the orbit camera frame it so the builder can inspect/edit it live.
+    creatureRenderer.update(1);
+    renderer.followTarget(bird);
   }
 
   renderer.render();
@@ -187,6 +199,13 @@ function enterSimMode() {
 
 function enterBuildMode() {
   simMode = false;
+  // Park the creature in a still rest pose so it can be inspected/edited.
+  if (bird) {
+    bird.placeAt(0, 30, 0);
+    bird.setVelocity(0, 0, 0);
+    if (bird.flappingController) bird.flappingController.tuck = 0;
+  }
+  builder?.refresh();
   document.getElementById('hud').classList.add('hidden');
   document.getElementById('attitude')?.classList.add('hidden');
   document.getElementById('joystick-left').classList.add('hidden');
@@ -255,6 +274,7 @@ function wireUI() {
       if (!isOpen) {
         panel.classList.remove('hidden');
         document.getElementById(btnId).classList.add('active');
+        if (panelId === 'builder-panel') builder?.refresh();
       }
     });
   }
@@ -297,6 +317,7 @@ function wireUI() {
         bird.groundController = new GroundController(bird, terrain);
         world.addCreature(bird);
         creatureRenderer.init(bird);
+        builder?.refresh();
         document.getElementById('creature-panel').classList.add('hidden');
         showToast(`${label} loaded`);
       }).catch(err => logErr(err.message, err.stack));
