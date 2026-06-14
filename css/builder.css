@@ -109,3 +109,34 @@
   color: var(--text-dim);
   font-style: italic;
 }
+
+.builder-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 10px;
+  margin: 3px 0;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.builder-row:hover { background: rgba(255,255,255,0.04); }
+.builder-row.sel {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+.builder-tag {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--accent);
+  background: var(--accent-dim);
+  padding: 2px 6px;
+  border-radius: 3px;
+}

@@ -104,6 +104,44 @@ function makeFeatherMesh(feather, index = 0, total = 1) {
   return mesh;
 }
 
+// Membrane wing: a triangle mesh over the cloth grid. The cloth particles
+// live in WORLD space (ClothBody.pos), so the mesh sits at the group origin
+// and we write absolute positions straight into its vertex buffer each frame.
+// Both faces are lit (DoubleSide) and normals are recomputed per frame so the
+// billow shades correctly as the membrane deforms.
+function makeMembraneMesh(mem) {
+  const { cols, rows } = mem;
+  const geo = new THREE.BufferGeometry();
+  const posAttr = new THREE.BufferAttribute(new Float32Array(cols * rows * 3), 3);
+  posAttr.setUsage(THREE.DynamicDrawUsage);
+  geo.setAttribute('position', posAttr);
+
+  // Two triangles per grid cell
+  const idx = (c, r) => r * cols + c;
+  const indices = [];
+  for (let r = 0; r + 1 < rows; r++) {
+    for (let c = 0; c + 1 < cols; c++) {
+      const i00 = idx(c, r), i10 = idx(c + 1, r);
+      const i01 = idx(c, r + 1), i11 = idx(c + 1, r + 1);
+      indices.push(i00, i10, i11, i00, i11, i01);
+    }
+  }
+  geo.setIndex(indices);
+
+  const color = new THREE.Color(mem.color ?? 0x6b4a3a);
+  const mat = new THREE.MeshPhongMaterial({
+    color, emissive: color.clone().multiplyScalar(0.06),
+    side: THREE.DoubleSide, transparent: true, opacity: 0.9, shininess: 8,
+    flatShading: false,
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.castShadow = true;
+  mesh.frustumCulled = false;
+  // Cloth positions are world-space; keep the mesh at identity.
+  mesh.matrixAutoUpdate = false;
+  return { mesh, geo, posAttr };
+}
+
 // Scratch for the wing-fold pose
 const _fT = new THREE.Quaternion();
 const _fA = new THREE.Quaternion();
@@ -133,6 +171,7 @@ export class CreatureRenderer {
     this.featherEntries.length = 0;
     this.attachEntries = [];    // { att, mesh }
     this.coverts = [];          // { vf, mesh } static decorative feather quads
+    this.membraneEntries = [];  // { mem, mesh, geo, posAttr } cloth wing surfaces
     this.tailFan = null;        // { segId, meshes[], cfg }
     this.creature = creature;
 
@@ -190,6 +229,13 @@ export class CreatureRenderer {
       mesh.userData.localQ = quatFromFrame({ x: 0, y: 0, z: 1 }, { x: 1, y: 0, z: 0 });
       this.group.add(mesh);
       this.coverts.push({ vf, mesh });
+    }
+
+    // Membrane wings (bat/dragon): one deforming triangle mesh per cloth grid.
+    for (const mem of creature.membranes.values()) {
+      const entry = makeMembraneMesh(mem);
+      this.group.add(entry.mesh);
+      this.membraneEntries.push({ mem, ...entry });
     }
 
     // Wing-fold rig: birds fold the wing into a Z against the body when they
@@ -314,6 +360,17 @@ export class CreatureRenderer {
       const rb = seg.rigidBody;
       mesh.position.set(rb.position.x, rb.position.y, rb.position.z);
       mesh.quaternion.set(rb.orientation.x, rb.orientation.y, rb.orientation.z, rb.orientation.w);
+    }
+
+    // Membrane wings: copy the world-space cloth positions into the vertex
+    // buffer and rebuild normals so the billow shades as it deforms.
+    for (const { mem, geo, posAttr } of this.membraneEntries) {
+      const src = mem.cloth.pos;       // Float64Array, world space
+      const dst = posAttr.array;       // Float32Array
+      for (let i = 0; i < dst.length; i++) dst[i] = src[i];
+      posAttr.needsUpdate = true;
+      geo.computeVertexNormals();
+      geo.computeBoundingSphere();
     }
 
     // Wing strips: world_pos = body_pos + R_body * bodyPoint

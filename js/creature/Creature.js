@@ -99,6 +99,8 @@ export class Creature {
       rb.linMomentum.set(vx * rb.mass, vy * rb.mass, vz * rb.mass);
       rb.updateDerived();
     }
+    // Carry membrane cloth along too, or its pins snap on the first frame.
+    for (const m of this.membranes.values()) m.setUniformVelocity(vx, vy, vz);
   }
 
   findSegmentByName(name) {
