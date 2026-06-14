@@ -76,10 +76,6 @@
         <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
         <span>World</span>
       </button>
-      <button id="debug-btn" class="nav-btn" title="Builder / debug">
-        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
-        <span>Build</span>
-      </button>
     </div>
     <div class="nav-divider"></div>
     <div class="nav-group">
@@ -90,24 +86,31 @@
     </div>
   </nav>
 
-  <!-- Builder panel (left side) -->
-  <aside id="builder-panel" class="panel hidden">
-    <div class="panel-header">
-      <span>Builder</span>
-      <button class="panel-close" data-close="builder-panel">✕</button>
+  <!-- Build Scene: shown in place of the flight UI when editing a creature -->
+  <div id="build-scene" class="hidden">
+    <!-- Top bar for build mode -->
+    <div id="build-bar">
+      <button id="build-fly-btn" class="build-fly-btn">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        Fly
+      </button>
+      <div class="build-divider"></div>
+      <span class="build-title">BUILD</span>
+      <div class="build-divider"></div>
+      <div id="builder-toolbar">
+        <button class="tool-btn active" data-tool="select">Select</button>
+        <button class="tool-btn" data-tool="segment">+ Segment</button>
+        <button class="tool-btn" data-tool="wingbone">+ Bone</button>
+        <button class="tool-btn" data-tool="membrane">+ Membrane</button>
+        <button class="tool-btn" data-tool="joint">+ Joint</button>
+        <button class="tool-btn" data-tool="muscle">+ Muscle</button>
+      </div>
     </div>
-    <div id="builder-toolbar">
-      <button class="tool-btn active" data-tool="select">Select</button>
-      <button class="tool-btn" data-tool="segment">+ Segment</button>
-      <button class="tool-btn" data-tool="wingbone">+ Wing Bone</button>
-      <button class="tool-btn" data-tool="feathers">+ Feathers</button>
-      <button class="tool-btn" data-tool="membrane">+ Membrane</button>
-      <button class="tool-btn" data-tool="fin">+ Fin</button>
-      <button class="tool-btn" data-tool="joint">+ Joint</button>
-      <button class="tool-btn" data-tool="muscle">+ Muscle</button>
+    <!-- Left props panel; canvas shows through on the right -->
+    <div id="build-props-panel">
+      <div id="builder-props"><p class="builder-hint">Select a segment to edit</p></div>
     </div>
-    <div id="builder-props"><p class="panel-hint">Select an object to edit properties</p></div>
-  </aside>
+  </div>
 
   <!-- Creature panel -->
   <div id="creature-panel" class="panel hidden">
@@ -181,9 +184,6 @@
 
   <!-- Landing mode toggle -->
   <button id="land-btn" class="hidden">LAND</button>
-
-  <!-- Launch button -->
-  <button id="launch-btn" class="hidden">LAUNCH</button>
 
   <!-- Notifications -->
   <div id="notifications"></div>

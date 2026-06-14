@@ -1,29 +1,115 @@
-#builder-panel {
-  left: 10px;
-  right: auto;
-  width: min(290px, calc(100vw - 20px));
+/* ── Build scene: full-screen takeover, replaces the flight top-bar ── */
+
+#build-scene {
+  position: fixed;
+  inset: 0;
+  z-index: 15;
+  display: none;
+  flex-direction: column;
+  pointer-events: none; /* right area passes mouse events to canvas (orbit) */
+}
+#build-scene:not(.hidden) { display: flex; }
+
+/* Build-mode top bar: spans full width */
+#build-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 52px;
+  padding: 0 14px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--panel-border);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: 0 2px 16px rgba(0,0,0,0.5);
+  pointer-events: all;
+  flex-shrink: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
-#builder-toolbar {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+.build-fly-btn {
+  display: flex;
+  align-items: center;
   gap: 6px;
-  padding: 12px;
-  border-bottom: 1px solid var(--panel-border);
+  background: var(--accent-dim);
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  padding: 7px 14px;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.15s;
 }
+.build-fly-btn:hover {
+  background: var(--accent-glow);
+  box-shadow: 0 0 12px rgba(77,163,255,0.3);
+}
+.build-fly-btn .nav-icon { width: 12px; height: 12px; }
+
+.build-divider {
+  width: 1px;
+  height: 28px;
+  background: var(--panel-border);
+  flex-shrink: 0;
+}
+
+.build-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 4px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+/* Toolbar inside the build bar: horizontal row of tool buttons */
+#build-bar #builder-toolbar {
+  display: flex;
+  gap: 6px;
+  padding: 0;
+  border: none;
+  flex-shrink: 0;
+}
+
+/* Left props panel: overlays left side, canvas visible to the right */
+#build-props-panel {
+  position: absolute;
+  left: 0;
+  top: 52px;
+  bottom: 0;
+  width: 272px;
+  background: rgba(8, 14, 22, 0.97);
+  border-right: 1px solid var(--panel-border);
+  overflow-y: auto;
+  overflow-x: hidden;
+  pointer-events: all;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* ── Builder UI components ─────────────────────────────────────────── */
 
 .tool-btn {
   background: rgba(0,0,0,0.25);
   border: 1px solid var(--panel-border);
   color: var(--text-dim);
-  padding: 10px 6px;
+  padding: 8px 10px;
   border-radius: var(--radius-sm);
   font-family: inherit;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   cursor: pointer;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  white-space: nowrap;
+  flex-shrink: 0;
   transition: all 0.15s;
 }
 .tool-btn:hover {
@@ -59,7 +145,7 @@
   margin: 6px 0;
 }
 .prop-row label {
-  flex: 0 0 78px;
+  flex: 0 0 70px;
   font-size: 11px;
   color: var(--text-dim);
   text-transform: uppercase;
@@ -104,7 +190,7 @@
 .prop-actions button.danger { color: var(--danger); border-color: rgba(255,77,94,0.3); }
 
 .builder-hint {
-  padding: 12px 14px;
+  padding: 16px 14px;
   font-size: 12px;
   color: var(--text-dim);
   font-style: italic;
@@ -116,7 +202,7 @@
   justify-content: space-between;
   gap: 8px;
   padding: 7px 10px;
-  margin: 3px 0;
+  margin: 3px 6px;
   border-radius: var(--radius-sm);
   border: 1px solid transparent;
   font-size: 12px;
